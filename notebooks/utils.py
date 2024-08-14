@@ -10,14 +10,16 @@ from datetime import datetime
 import scipy.stats as stats
 from sklearn.metrics.pairwise import cosine_similarity
 import pyarrow
+import statsmodels.api as sm
+from statsmodels.miscmodels.ordinal_model import OrderedModel
 from sklearn.model_selection import train_test_split,cross_val_score
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, accuracy_score
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import LabelEncoder
-import statsmodels.api as sm
-from statsmodels.miscmodels.ordinal_model import OrderedModel
+from sklearn.metrics.pairwise import cosine_similarity
+
 
 
 def read_csv_with_lowercase_columns(file_path: str) -> pl.DataFrame:
@@ -164,7 +166,63 @@ def plot_histograms(df, columns):
     plt.tight_layout()
     plt.show()
 
-# Create an item-user matrix using reduce
+def item_to_vector(item, item_user_matrix, user_baskets):
+    """
+    Returns a vector representation of an item.
+
+    Parameters:
+    item (str): The item to convert to a vector.
+    item_user_matrix (dict): A dictionary where each key is an item and each value is another dictionary.
+                             The inner dictionary has users as keys and the count of the item in the user's baskets as values.
+    user_baskets (dict): A dictionary where each key is a user and each value is a list of items in the user's baskets.
+
+    Returns:
+    list: A list of integers representing the count of the item in each user's baskets.
+    """
+    return [item_user_matrix[item][user] for user in user_baskets]
+
+def build_matrix_item_user(transacciones, col_sku, col_account):
+    """
+    Construye una matriz usuario-item basada en la frecuencia de compra de SKU por cliente.
+    
+    Parámetros:
+    transacciones (DataFrame): DataFrame de transacciones.
+    col_sku (str): Nombre de la columna que contiene los SKU.
+    col_account (str): Nombre de la columna que contiene los IDs de las cuentas de los clientes.
+
+    Retorna:
+    dict: Matriz usuario-item representada como un diccionario anidado.
+    """
+    item_user_matrix = defaultdict(lambda: defaultdict(int))
+    
+    for row in transacciones.iter_rows(named=True):
+        for sku in row[col_sku]:
+            item_user_matrix[sku][row[col_account]] += 1
+    
+    return item_user_matrix
+
+def matrix_to_vector(item_user_matrix, users, col_account):
+    """
+    Convierte la matriz usuario-item en un formato adecuado para calcular la similitud coseno.
+
+    Parámetros:
+    item_user_matrix (dict): Matriz usuario-item representada como un diccionario anidado.
+    users (list): Lista de usuarios (IDs de cuentas).
+    col_account (str): Nombre de la columna que contiene los IDs de las cuentas de los clientes.
+
+    Retorna:
+    np.array: Matriz de vectores donde cada fila representa un SKU y cada columna un usuario.
+    list: Lista de ítems (SKU) en el orden en que aparecen en la matriz de vectores.
+    """
+    item_user_vectors = []
+    items = list(item_user_matrix.keys())
+
+    for item in items:
+        item_user_vectors.append([item_user_matrix[item].get(user, 0) for user in users])
+    
+    return np.array(item_user_vectors), items
+
+
 def update_item_user_matrix(acc, user_basket_pair):
     """
     Updates the item-user matrix with the given user-baskets pair.
@@ -182,21 +240,6 @@ def update_item_user_matrix(acc, user_basket_pair):
         for item in basket:
             acc[item][user] += 1
     return acc
-
-def item_to_vector(item, item_user_matrix, user_baskets):
-    """
-    Returns a vector representation of an item.
-
-    Parameters:
-    item (str): The item to convert to a vector.
-    item_user_matrix (dict): A dictionary where each key is an item and each value is another dictionary.
-                             The inner dictionary has users as keys and the count of the item in the user's baskets as values.
-    user_baskets (dict): A dictionary where each key is a user and each value is a list of items in the user's baskets.
-
-    Returns:
-    list: A list of integers representing the count of the item in each user's baskets.
-    """
-    return [item_user_matrix[item][user] for user in user_baskets]
 
 def replace_sd_with_null(df: pl.DataFrame, columns: list) -> pl.DataFrame:
     """
