@@ -1,11 +1,12 @@
 import os
+from functools import reduce
+from collections import defaultdict, Counter
 import polars as pl
 import pandas as pd
 pl.Config(tbl_rows=50)
-import matplotlib.pyplot as plt
-from functools import reduce
-from collections import defaultdict, Counter
 import numpy as np
+import matplotlib.pyplot as plt
+from datetime import datetime
 import scipy.stats as stats
 from sklearn.metrics.pairwise import cosine_similarity
 import pyarrow
@@ -36,6 +37,47 @@ def read_csv_with_lowercase_columns(file_path: str) -> pl.DataFrame:
     df = df.rename({col: col.lower() for col in df.columns})
     
     return df
+
+def transform_to_date(df: pl.DataFrame, columns: list) -> pl.DataFrame:
+    """
+    Transforms specified columns of a DataFrame into date format (YYYY-mm-dd).
+    
+    Parameters:
+    df (pl.DataFrame): The original Polars DataFrame.
+    columns (list): List of column names to transform into date format.
+    
+    Returns:
+    pl.DataFrame: The DataFrame with specified columns transformed to dates.
+    """
+    transformations = []
+    for col in columns:
+        transformations.append(
+            pl.col(col).cast(pl.Utf8).str.strptime(pl.Date, format="%Y%m%d").alias(col)
+        )
+    return df.with_columns(transformations)
+
+
+def group_aggregate_sum(df: pl.DataFrame, group_by_cols: list, list_col: str, sum_cols: list) -> pl.DataFrame:
+    """
+    Groups a DataFrame by specified columns, aggregates one column's values into a list,
+    and sums the specified numeric columns.
+    
+    Parameters:
+    df (pl.DataFrame): The original Polars DataFrame.
+    group_by_cols (list): List of column names to group by.
+    list_col (str): The column whose values should be aggregated into a list.
+    sum_cols (list): List of numeric column names on which to perform a sum.
+    
+    Returns:
+    pl.DataFrame: The resulting grouped and aggregated Polars DataFrame.
+    """
+    # Group by the specified columns
+    grouped_df = df.groupby(group_by_cols).agg([
+        pl.col(list_col).list().alias(f"{list_col}_list"),
+        *[pl.col(col).sum().alias(f"{col}_sum") for col in sum_cols]
+    ])
+    
+    return grouped_df
 
 def count_unique_values(df: pl.DataFrame, columns: list) -> dict:
     """
