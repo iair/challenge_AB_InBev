@@ -3,14 +3,14 @@ from functools import reduce
 from collections import defaultdict, Counter
 import polars as pl
 import pandas as pd
+import pyarrow
 pl.Config(tbl_rows=50)
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 import scipy.stats as stats
-from sklearn.metrics.pairwise import cosine_similarity
-import pyarrow
 import statsmodels.api as sm
+from scipy.stats import kruskal
 from statsmodels.miscmodels.ordinal_model import OrderedModel
 from sklearn.model_selection import train_test_split,cross_val_score
 from sklearn.tree import DecisionTreeClassifier
@@ -19,8 +19,6 @@ from sklearn.metrics import classification_report, accuracy_score
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics.pairwise import cosine_similarity
-
-
 
 def read_csv_with_lowercase_columns(file_path: str) -> pl.DataFrame:
     """
@@ -57,248 +55,6 @@ def transform_to_date(df: pl.DataFrame, columns: list) -> pl.DataFrame:
             pl.col(col).cast(pl.Utf8).str.strptime(pl.Date, format="%Y%m%d").alias(col)
         )
     return df.with_columns(transformations)
-
-def create_baskets(
-    df: pl.DataFrame,
-    group_cols: list[str],
-    list_col: str,
-    sum_cols: list[str],
-    sort_cols: list[str]
-) -> pl.DataFrame:
-    """
-    Process a DataFrame of transactions to create a dataframe of baskets by grouping by specified columns,
-    aggregating one column's values into a list, and summing the specified numeric columns,
-    and sorting the result by the specified columns.
-
-    Parameters:
-    df (pl.DataFrame): The original Polars DataFrame.
-    group_cols (list[str]): List of column names to group by.
-    list_col (str): The column whose values should be aggregated into a list.
-    sum_cols (list[str]): List of numeric column names on which to perform a sum.
-    sort_cols (list[str]): List of column names to sort the result by.
-
-    Returns:
-    pl.DataFrame: The resulting grouped and aggregated Polars DataFrame.
-    """
-    agg_exprs = [
-        pl.col(list_col).alias(list_col),
-        pl.col(list_col).count().alias(f"{list_col}_count")
-    ] + [pl.col(col).sum().alias(col) for col in sum_cols]
-    
-    result = df.group_by(group_cols).agg(agg_exprs)
-    
-    return result.sort(sort_cols)
-
-
-def group_aggregate_sum(df: pl.DataFrame, group_by_cols: list, list_col: str, sum_cols: list) -> pl.DataFrame:
-    """
-    Groups a DataFrame by specified columns, aggregates one column's values into a list,
-    and sums the specified numeric columns.
-    
-    Parameters:
-    df (pl.DataFrame): The original Polars DataFrame.
-    group_by_cols (list): List of column names to group by.
-    list_col (str): The column whose values should be aggregated into a list.
-    sum_cols (list): List of numeric column names on which to perform a sum.
-    
-    Returns:
-    pl.DataFrame: The resulting grouped and aggregated Polars DataFrame.
-    """
-    # Group by the specified columns
-    grouped_df = df.groupby(group_by_cols).agg([
-        pl.col(list_col).list().alias(f"{list_col}_list"),
-        *[pl.col(col).sum().alias(f"{col}_sum") for col in sum_cols]
-    ])
-    
-    return grouped_df
-
-def count_unique_values(df: pl.DataFrame, columns: list) -> dict:
-    """
-    Cuenta los valores únicos de las columnas especificadas en un DataFrame.
-
-    Parameters:
-    df (pl.DataFrame): El DataFrame de polars.
-    columns (list): Una lista de nombres de columnas para contar los valores únicos.
-
-    Returns:
-    dict: Un diccionario con los nombres de las columnas y la cantidad de valores únicos.
-    """
-    unique_counts = {col: df[col].n_unique() for col in columns}
-    return unique_counts
-
-def count_distinct_grouped_by(df: pl.DataFrame, y_column: str, x_columns: list, z_columns: list = None) -> pl.DataFrame:
-    """
-    Cuenta la cantidad de elementos distintos de una columna Y agrupado por los valores de una o más columnas X,
-    ordena los resultados por una o más columnas Z de forma descendente, y calcula el porcentaje sobre el total
-    de cada valor de la primera columna de agrupación.
-
-    Parameters:
-    df (pl.DataFrame): El DataFrame de polars.
-    y_column (str): El nombre de la columna Y cuyos valores distintos se contarán.
-    x_columns (list): Una lista de nombres de columnas X por las que se agrupará.
-    z_columns (list, optional): Una lista de nombres de columnas Z por las que se ordenará de forma descendente.
-
-    Returns:
-    pl.DataFrame: Un nuevo DataFrame con los resultados de la cantidad de valores distintos de Y agrupados por X,
-                  ordenados por las columnas Z y con el porcentaje calculado.
-    """
-    # Agrupar por las columnas X y contar los valores distintos de Y
-    result = df.group_by(x_columns).agg([
-        pl.col(y_column).n_unique().alias(f"{y_column}_distinct_count")
-    ])
-    
-    # Si hay más de una columna en x_columns, calcular el total por cada valor de la primera columna de agrupación
-    if len(x_columns) > 1:
-        total_by_first_column = result.group_by(x_columns[0]).agg([
-            pl.col(f"{y_column}_distinct_count").sum().alias("total_first_column")
-        ])
-        
-        # Unir los totales al resultado original
-        result = result.join(total_by_first_column, on=x_columns[0])
-    else:
-        # Si solo hay una columna de agrupación, calcular el total general
-        total_general = result[f"{y_column}_distinct_count"].sum()
-        result = result.with_columns([
-            pl.lit(total_general).alias("total_first_column")
-        ])
-    
-    # Calcular el porcentaje
-    result = result.with_columns([
-        (pl.col(f"{y_column}_distinct_count") / pl.col("total_first_column") * 100).alias(f"{y_column}_percentage")
-    ])
-    
-    # Si se proporcionan columnas Z, ordenar por esas columnas en orden descendente
-    if z_columns:
-        result = result.sort(by=z_columns, descending = True)
-    
-    return result
-
-def plot_histograms(df, columns):
-    """
-    Plots histograms for the specified columns in the DataFrame.
-
-    Parameters:
-    df (pl.DataFrame): The DataFrame containing the data.
-    columns (list): A list of column names (strings) for which histograms should be plotted.
-    """
-    num_columns = len(columns)
-    fig, axs = plt.subplots(1, num_columns, figsize=(5*num_columns, 5))
-    
-    if num_columns == 1:
-        axs = [axs]  # Ensure axs is iterable if there's only one column
-
-    for i, column in enumerate(columns):
-        data = df.select(column).to_series()
-        axs[i].hist(data, bins=10, color='skyblue', edgecolor='black')
-        axs[i].set_title(f'Histogram of {column}')
-        axs[i].set_xlabel(column)
-        axs[i].set_ylabel('Frequency')
-
-    plt.tight_layout()
-    plt.show()
-    
-def plot_boxplots(df: pl.DataFrame, columns: list):
-    """
-    Genera boxplots para cada columna en la lista de columnas ingresada, dispuestos en una sola fila.
-
-    Parameters:
-    df (pl.DataFrame): El DataFrame de polars.
-    columns (list): Una lista de nombres de columnas para las cuales se generarán los boxplots.
-    """
-    # Convertir las columnas a pandas para la compatibilidad con matplotlib
-    df_pandas = df.select(columns).to_pandas()
-    
-    # Crear una figura con subplots dispuestos en una fila
-    fig, axes = plt.subplots(nrows=1, ncols=len(columns), figsize=(len(columns) * 4, 6))
-
-    # Si solo hay una columna, axes no es un array, lo convertimos a uno
-    if len(columns) == 1:
-        axes = [axes]
-
-    # Generar un boxplot para cada columna
-    for ax, col in zip(axes, columns):
-        ax.boxplot(df_pandas[col].dropna(), vert=False, patch_artist=True)
-        ax.set_title(f'Boxplot de {col}')
-        ax.set_xlabel(col)
-
-    plt.tight_layout()
-    plt.show()
-
-
-def item_to_vector(item, item_user_matrix, user_baskets):
-    """
-    Returns a vector representation of an item.
-
-    Parameters:
-    item (str): The item to convert to a vector.
-    item_user_matrix (dict): A dictionary where each key is an item and each value is another dictionary.
-                             The inner dictionary has users as keys and the count of the item in the user's baskets as values.
-    user_baskets (dict): A dictionary where each key is a user and each value is a list of items in the user's baskets.
-
-    Returns:
-    list: A list of integers representing the count of the item in each user's baskets.
-    """
-    return [item_user_matrix[item][user] for user in user_baskets]
-
-def build_matrix_item_user(transacciones, col_sku, col_account):
-    """
-    Construye una matriz usuario-item basada en la frecuencia de compra de SKU por cliente.
-    
-    Parámetros:
-    transacciones (DataFrame): DataFrame de transacciones.
-    col_sku (str): Nombre de la columna que contiene los SKU.
-    col_account (str): Nombre de la columna que contiene los IDs de las cuentas de los clientes.
-
-    Retorna:
-    dict: Matriz usuario-item representada como un diccionario anidado.
-    """
-    item_user_matrix = defaultdict(lambda: defaultdict(int))
-    
-    for row in transacciones.iter_rows(named=True):
-        for sku in row[col_sku]:
-            item_user_matrix[sku][row[col_account]] += 1
-    
-    return item_user_matrix
-
-def matrix_to_vector(item_user_matrix, users, col_account):
-    """
-    Convierte la matriz usuario-item en un formato adecuado para calcular la similitud coseno.
-
-    Parámetros:
-    item_user_matrix (dict): Matriz usuario-item representada como un diccionario anidado.
-    users (list): Lista de usuarios (IDs de cuentas).
-    col_account (str): Nombre de la columna que contiene los IDs de las cuentas de los clientes.
-
-    Retorna:
-    np.array: Matriz de vectores donde cada fila representa un SKU y cada columna un usuario.
-    list: Lista de ítems (SKU) en el orden en que aparecen en la matriz de vectores.
-    """
-    item_user_vectors = []
-    items = list(item_user_matrix.keys())
-
-    for item in items:
-        item_user_vectors.append([item_user_matrix[item].get(user, 0) for user in users])
-    
-    return np.array(item_user_vectors), items
-
-
-def update_item_user_matrix(acc, user_basket_pair):
-    """
-    Updates the item-user matrix with the given user-baskets pair.
-
-    Parameters:
-    acc (dict): The accumulator dictionary, where each key is an item and each value is another dictionary.
-               The inner dictionary has users as keys and the count of the item in the user's baskets as values.
-    user_basket_pair (tuple): A tuple containing the user ID and their baskets.
-
-    Returns:
-    dict: The updated accumulator dictionary.
-    """
-    user, baskets = user_basket_pair
-    for basket in baskets:
-        for item in basket:
-            acc[item][user] += 1
-    return acc
 
 def replace_sd_with_null(df: pl.DataFrame, columns: list) -> pl.DataFrame:
     """
@@ -421,7 +177,6 @@ def fill_missing_values(df: pl.DataFrame, target_column: str, numeric_features: 
 
     return df_updated, cf, accuracy, cross_val_scores.mean()
 
-
 def filter_rows_with_nulls(df: pl.DataFrame) -> pl.DataFrame:
     """
     Filtra las filas de un DataFrame de polars que contienen al menos un valor nulo.
@@ -466,7 +221,6 @@ def filter_rows_without_nulls(df: pl.DataFrame) -> pl.DataFrame:
     
     return df_without_nulls
 
-
 def count_distinct_in_bins(df: pl.DataFrame, volume_column: str, column: str, bin_size: int = 500) -> pl.DataFrame:
     """
     Cuenta los valores distintos de una columna dentro de rangos de tamaño específico en otra columna.
@@ -493,10 +247,59 @@ def count_distinct_in_bins(df: pl.DataFrame, volume_column: str, column: str, bi
      # Retornar el resultado por 'volume_bin' ordenado de menor a mayor
     return result.sort("volume_bin")
 
+def calculate_statistics(df: pl.DataFrame, numeric_cols: list) -> pl.DataFrame:
+    """
+    Calcula el promedio, desviación estándar, y percentiles 0, 25, 50, 75, 100 para un grupo de variables numéricas.
+
+    Parameters:
+    df (pl.DataFrame): El DataFrame de Polars con los datos.
+    numeric_cols (list): Lista de nombres de las columnas numéricas a calcular.
+
+    Returns:
+    pl.DataFrame: Un nuevo DataFrame donde las filas son las variables y las columnas son las métricas calculadas.
+    """
+    # Crear una lista para almacenar las métricas
+    metrics = []
+    
+    # Iterar sobre cada columna numérica y calcular las métricas
+    for col in numeric_cols:
+        metrics.extend([
+            pl.col(col).mean().alias(f"{col}_mean"),
+            pl.col(col).std().alias(f"{col}_std_dev"),
+            pl.col(col).quantile(0).alias(f"{col}_p0"),
+            pl.col(col).quantile(0.25).alias(f"{col}_p25"),
+            pl.col(col).quantile(0.5).alias(f"{col}_p50"),
+            pl.col(col).quantile(0.75).alias(f"{col}_p75"),
+            pl.col(col).quantile(1).alias(f"{col}_p100")
+        ])
+    
+    # Seleccionar y calcular las métricas
+    stats_df = df.select(metrics)
+    
+    # Manual reshaping: collect all the metrics for each variable
+    rows = []
+    for col in numeric_cols:
+        row = {
+            "variable": col,
+            "mean": stats_df.select(pl.col(f"{col}_mean")).item(),
+            "std_dev": stats_df.select(pl.col(f"{col}_std_dev")).item(),
+            "p0": stats_df.select(pl.col(f"{col}_p0")).item(),
+            "p25": stats_df.select(pl.col(f"{col}_p25")).item(),
+            "p50": stats_df.select(pl.col(f"{col}_p50")).item(),
+            "p75": stats_df.select(pl.col(f"{col}_p75")).item(),
+            "p100": stats_df.select(pl.col(f"{col}_p100")).item()
+        }
+        rows.append(row)
+    
+    # Convertir la lista de filas en un DataFrame final
+    final_df = pl.DataFrame(rows)
+    
+    return final_df
+
 def group_and_describe_with_percentiles(df: pl.DataFrame, group_by_col: str, numeric_cols: list, percentiles: list = [0.25, 0.5, 0.75]) -> pl.DataFrame:
     """
-    Agrupa el DataFrame por una columna categórica y calcula las medidas de tendencia central
-    y los percentiles para una lista de variables numéricas.
+    Agrupa el DataFrame por una columna categórica y calcula las medidas de tendencia central,
+    los percentiles y el conteo de elementos para una lista de variables numéricas.
 
     Parameters:
     df (pl.DataFrame): El DataFrame de polars a ser agrupado y analizado.
@@ -505,19 +308,106 @@ def group_and_describe_with_percentiles(df: pl.DataFrame, group_by_col: str, num
     percentiles (list): Una lista de percentiles a calcular (por defecto [0.25, 0.5, 0.75]).
 
     Returns:
-    pl.DataFrame: Un nuevo DataFrame con las medidas de tendencia central y percentiles para cada grupo.
+    pl.DataFrame: Un nuevo DataFrame con las medidas de tendencia central, percentiles y conteo para cada grupo.
     """
     # Agrupar por la columna especificada y calcular las estadísticas descriptivas para las columnas numéricas
-    result = df.group_by(group_by_col).agg([
-        pl.col(col).mean().alias(f"{col}_mean") for col in numeric_cols
-    ] + [
-        pl.col(col).median().alias(f"{col}_median") for col in numeric_cols
-    ] + [
-        pl.col(col).std().alias(f"{col}_std_dev") for col in numeric_cols
-    ] + [
-        pl.col(col).quantile(p).alias(f"{col}_p{int(p*100)}") for col in numeric_cols for p in percentiles
-    ])
+    result = df.group_by(group_by_col).agg(
+        [
+            pl.count().alias("count")  # Contar el número de elementos en cada grupo
+        ] + [
+            pl.col(col).mean().alias(f"{col}_mean") for col in numeric_cols
+        ] + [
+            pl.col(col).median().alias(f"{col}_median") for col in numeric_cols
+        ] + [
+            pl.col(col).std().alias(f"{col}_std_dev") for col in numeric_cols
+        ] + [
+            pl.col(col).quantile(p).alias(f"{col}_p{int(p*100)}") for col in numeric_cols for p in percentiles
+        ]
+    )
 
+    return result
+
+def group_aggregate_sum(df: pl.DataFrame, group_by_cols: list, list_col: str, sum_cols: list) -> pl.DataFrame:
+    """
+    Groups a DataFrame by specified columns, aggregates one column's values into a list,
+    and sums the specified numeric columns.
+    
+    Parameters:
+    df (pl.DataFrame): The original Polars DataFrame.
+    group_by_cols (list): List of column names to group by.
+    list_col (str): The column whose values should be aggregated into a list.
+    sum_cols (list): List of numeric column names on which to perform a sum.
+    
+    Returns:
+    pl.DataFrame: The resulting grouped and aggregated Polars DataFrame.
+    """
+    # Group by the specified columns
+    grouped_df = df.groupby(group_by_cols).agg([
+        pl.col(list_col).list().alias(f"{list_col}_list"),
+        *[pl.col(col).sum().alias(f"{col}_sum") for col in sum_cols]
+    ])
+    
+    return grouped_df
+
+def count_unique_values(df: pl.DataFrame, columns: list) -> dict:
+    """
+    Cuenta los valores únicos de las columnas especificadas en un DataFrame.
+
+    Parameters:
+    df (pl.DataFrame): El DataFrame de polars.
+    columns (list): Una lista de nombres de columnas para contar los valores únicos.
+
+    Returns:
+    dict: Un diccionario con los nombres de las columnas y la cantidad de valores únicos.
+    """
+    unique_counts = {col: df[col].n_unique() for col in columns}
+    return unique_counts
+
+def count_distinct_grouped_by(df: pl.DataFrame, y_column: str, x_columns: list, z_columns: list = None) -> pl.DataFrame:
+    """
+    Cuenta la cantidad de elementos distintos de una columna Y agrupado por los valores de una o más columnas X,
+    ordena los resultados por una o más columnas Z de forma descendente, y calcula el porcentaje sobre el total
+    de cada valor de la primera columna de agrupación.
+
+    Parameters:
+    df (pl.DataFrame): El DataFrame de polars.
+    y_column (str): El nombre de la columna Y cuyos valores distintos se contarán.
+    x_columns (list): Una lista de nombres de columnas X por las que se agrupará.
+    z_columns (list, optional): Una lista de nombres de columnas Z por las que se ordenará de forma descendente.
+
+    Returns:
+    pl.DataFrame: Un nuevo DataFrame con los resultados de la cantidad de valores distintos de Y agrupados por X,
+                  ordenados por las columnas Z y con el porcentaje calculado.
+    """
+    # Agrupar por las columnas X y contar los valores distintos de Y
+    result = df.group_by(x_columns).agg([
+        pl.col(y_column).n_unique().alias(f"{y_column}_distinct_count")
+    ])
+    
+    # Si hay más de una columna en x_columns, calcular el total por cada valor de la primera columna de agrupación
+    if len(x_columns) > 1:
+        total_by_first_column = result.group_by(x_columns[0]).agg([
+            pl.col(f"{y_column}_distinct_count").sum().alias("total_first_column")
+        ])
+        
+        # Unir los totales al resultado original
+        result = result.join(total_by_first_column, on=x_columns[0])
+    else:
+        # Si solo hay una columna de agrupación, calcular el total general
+        total_general = result[f"{y_column}_distinct_count"].sum()
+        result = result.with_columns([
+            pl.lit(total_general).alias("total_first_column")
+        ])
+    
+    # Calcular el porcentaje
+    result = result.with_columns([
+        (pl.col(f"{y_column}_distinct_count") / pl.col("total_first_column") * 100).alias(f"{y_column}_percentage")
+    ])
+    
+    # Si se proporcionan columnas Z, ordenar por esas columnas en orden descendente
+    if z_columns:
+        result = result.sort(by=z_columns, descending = True)
+    
     return result
         
 def chi2_test(df: pl.DataFrame, col1: str, col2: str, confidence_level: float = 0.95):
@@ -581,6 +471,379 @@ def chi2_matrix(chi2_test_func, df: pl.DataFrame, categorical_columns: list, con
 
     return results_df
 
+def kruskal_wallis_test_multiple(df, numeric_cols, categorical_col, alpha=0.05):
+    """
+    Realiza el test de Kruskal-Wallis para evaluar la independencia entre varias variables categóricas y una variable numérica.
+
+    Parameters:
+    df (pd.DataFrame): El DataFrame que contiene los datos.
+    numeric_cols (list): Una lista de nombres de las columnas numéricas.
+    categorical_col (str): El nombre de la columna categórica.
+    alpha (float): Nivel de significancia para rechazar la hipótesis nula (por defecto es 0.05).
+
+    Returns:
+    dict: Un diccionario con los resultados del test para cada columna numérica.
+    """
+    results = {}
+    
+    for numeric_col in numeric_cols:
+        # Agrupar los datos por la variable categórica y extraer los valores de la variable numérica
+        groups = [group[numeric_col] for name, group in df.group_by(categorical_col)]
+        
+        # Realizar el test de Kruskal-Wallis
+        stat, p_value = kruskal(*groups)
+        
+        # Determinar si se rechaza la hipótesis nula
+        reject_null = p_value < alpha
+        
+        # Guardar los resultados en el diccionario
+        results[numeric_col] = {
+            'estadistico': stat,
+            'p_valor': p_value,
+            'rechaza_hipotesis_nula de independencia': reject_null
+        }
+    
+    return results
+
+def plot_histograms(df, columns):
+    """
+    Plots histograms for the specified columns in the DataFrame.
+
+    Parameters:
+    df (pl.DataFrame): The DataFrame containing the data.
+    columns (list): A list of column names (strings) for which histograms should be plotted.
+    """
+    num_columns = len(columns)
+    fig, axs = plt.subplots(1, num_columns, figsize=(5*num_columns, 5))
+    
+    if num_columns == 1:
+        axs = [axs]  # Ensure axs is iterable if there's only one column
+
+    for i, column in enumerate(columns):
+        data = df.select(column).to_series()
+        axs[i].hist(data, bins=10, color='skyblue', edgecolor='black')
+        axs[i].set_title(f'Histogram of {column}')
+        axs[i].set_xlabel(column)
+        axs[i].set_ylabel('Frequency')
+
+    plt.tight_layout()
+    plt.show()
+    
+def plot_boxplots(df: pl.DataFrame, columns: list):
+    """
+    Genera boxplots para cada columna en la lista de columnas ingresada, dispuestos en una sola fila.
+
+    Parameters:
+    df (pl.DataFrame): El DataFrame de polars.
+    columns (list): Una lista de nombres de columnas para las cuales se generarán los boxplots.
+    """
+    # Convertir las columnas a pandas para la compatibilidad con matplotlib
+    df_pandas = df.select(columns).to_pandas()
+    
+    # Crear una figura con subplots dispuestos en una fila
+    fig, axes = plt.subplots(nrows=1, ncols=len(columns), figsize=(len(columns) * 4, 6))
+
+    # Si solo hay una columna, axes no es un array, lo convertimos a uno
+    if len(columns) == 1:
+        axes = [axes]
+
+    # Generar un boxplot para cada columna
+    for ax, col in zip(axes, columns):
+        ax.boxplot(df_pandas[col].dropna(), vert=False, patch_artist=True)
+        ax.set_title(f'Boxplot de {col}')
+        ax.set_xlabel(col)
+
+    plt.tight_layout()
+    plt.show()
+    
+def plot_weekly_sum(df, columns,group_by_period="weeks",xlabel_name="Weeks", ylabel_name="Sum of total values", title_name="Sum of Total Values over Time"):
+    # Group by weeks and calculate sum for each column
+    weekly_sum = df.group_by(group_by_period).agg(
+        [pl.col(col).sum().alias(f"total_{col}") for col in columns]
+    )
+
+    # Sort the DataFrame by weeks
+    weekly_sum = weekly_sum.sort(group_by_period)
+
+    # Create a line plot
+    plt.figure(figsize=(14, 8))
+    for col in columns:
+        plt.plot(weekly_sum[group_by_period], weekly_sum[f"total_{col}"], label=f"Total {col}")
+    plt.xlabel(xlabel_name)
+    plt.ylabel(ylabel_name)
+    plt.title(title_name)
+    plt.legend()
+    plt.show()
+
+def create_baskets(
+    df: pl.DataFrame,
+    group_cols: list[str],
+    list_col: str,
+    sum_cols: list[str],
+    sort_cols: list[str]
+) -> pl.DataFrame:
+    """
+    Process a DataFrame of transactions to create a dataframe of baskets by grouping by specified columns,
+    aggregating one column's values into a list, and summing the specified numeric columns,
+    and sorting the result by the specified columns.
+
+    Parameters:
+    df (pl.DataFrame): The original Polars DataFrame.
+    group_cols (list[str]): List of column names to group by.
+    list_col (str): The column whose values should be aggregated into a list.
+    sum_cols (list[str]): List of numeric column names on which to perform a sum.
+    sort_cols (list[str]): List of column names to sort the result by.
+
+    Returns:
+    pl.DataFrame: The resulting grouped and aggregated Polars DataFrame.
+    """
+    agg_exprs = [
+        pl.col(list_col).alias(list_col),
+        pl.col(list_col).count().alias(f"{list_col}_count")
+    ] + [pl.col(col).sum().alias(col) for col in sum_cols]
+    
+    result = df.group_by(group_cols).agg(agg_exprs)
+    
+    return result.sort(sort_cols)
+
+def process_baskets_weekly(
+    baskets: pl.DataFrame, 
+    count_column: str, 
+    unique_column: str, 
+    mean_columns: list[str]
+) -> pl.DataFrame:
+    """
+    Process the baskets DataFrame to create all possible combinations of weeks and account_id,
+    perform aggregation, and join the results.
+
+    Args:
+    baskets (pl.DataFrame): Input DataFrame
+    count_column (str): Column to count
+    unique_column (str): Column to calculate unique values
+    mean_columns (list[str]): Columns to calculate mean
+
+    Returns:
+    pl.DataFrame: Processed DataFrame
+    """
+    # Extract the week from the invoice_date column
+    baskets = baskets.with_columns([
+        pl.col("invoice_date").dt.strftime("%Y-%W").alias("weeks")
+    ])
+    # Create all possible combinations of weeks and account_id
+    all_weeks = baskets.select(pl.col("weeks").unique())
+    all_accounts = baskets.select(pl.col("account_id").unique())
+    all_combinations = all_weeks.join(all_accounts, how="cross")
+
+    # Perform the aggregation
+    aggregations = [
+        pl.count(count_column).alias(f"frec_{count_column}"),
+        pl.n_unique(unique_column).alias(f"total_{unique_column}"),
+    ]
+    for column in mean_columns:
+        aggregations.append(pl.col(column).mean().alias(f"avg_{column}"))
+
+    result = baskets.group_by(["weeks", "account_id"]).agg(aggregations)
+
+    # Join all possible combinations with the aggregated results
+    weekly_result = (
+        all_combinations.join(
+            result,
+            on=["weeks", "account_id"],
+            how="left"
+        )
+        .fill_null(0)
+        .sort(["weeks", "account_id"])
+    )
+
+    return weekly_result
+
+def process_baskets_biweekly(
+    baskets: pl.DataFrame, 
+    count_column: str, 
+    unique_column: str, 
+    mean_columns: list[str]
+) -> pl.DataFrame:
+    """
+    Process the baskets DataFrame to create all possible combinations of biweekly periods and account_id,
+    perform aggregation, and join the results.
+
+    Args:
+    baskets (pl.DataFrame): Input DataFrame
+    count_column (str): Column to count
+    unique_column (str): Column to calculate unique values
+    mean_columns (list[str]): Columns to calculate mean
+
+    Returns:
+    pl.DataFrame: Processed DataFrame
+    """
+    # Extract the week from the invoice_date column
+    baskets = baskets.with_columns([
+        pl.col("invoice_date").dt.strftime("%Y-%W").alias("weeks")
+    ])
+
+    # Function to assign 2-week periods
+    def assign_biweekly(week_str):
+        year, week = map(int, week_str.split('-'))
+        biweekly = (week - 1) // 2 + 1
+        return f"{year}-{biweekly:02d}"
+
+    # Add a new column for biweekly periods
+    baskets = baskets.with_columns([
+        pl.col("weeks").map_elements(assign_biweekly, return_dtype=pl.Utf8()).alias("biweekly")
+    ])
+
+    # Create all possible combinations of biweekly periods and account_id
+    all_biweekly = baskets.select(pl.col("biweekly").unique())
+    all_accounts = baskets.select(pl.col("account_id").unique())
+    all_combinations = all_biweekly.join(all_accounts, how="cross")
+
+    # Perform the aggregation
+    aggregations = [
+        pl.count(count_column).alias(f"frec_{count_column}"),
+        pl.n_unique(unique_column).alias(f"total_{unique_column}"),
+    ]
+    for column in mean_columns:
+        aggregations.append(pl.col(column).mean().alias(f"avg_{column}"))
+
+    result = baskets.group_by(["biweekly", "account_id"]).agg(aggregations)
+
+    # Join all possible combinations with the aggregated results
+    biweekly_result = (
+        all_combinations.join(
+            result,
+            on=["biweekly", "account_id"],
+            how="left"
+        )
+        .fill_null(0)
+        .sort(["biweekly", "account_id"])
+    )
+
+    return biweekly_result
+
+def process_baskets_monthly(
+    baskets: pl.DataFrame, 
+    count_column: str, 
+    unique_column: str, 
+    mean_columns: list[str]
+) -> pl.DataFrame:
+    # Extract the month from the invoice_date column
+    baskets = baskets.with_columns([
+        pl.col("invoice_date").dt.strftime("%Y-%m").alias("month")
+    ])
+
+    # Create all possible combinations of months and account_id
+    all_months = baskets.select(pl.col("month").unique())
+    all_accounts = baskets.select(pl.col("account_id").unique())
+    all_combinations = all_months.join(all_accounts, how="cross")
+
+    # Perform the aggregation
+    aggregations = [
+        pl.count(count_column).alias(f"frec_{count_column}"),
+        pl.n_unique(unique_column).alias(f"total_{unique_column}"),
+    ]
+    for column in mean_columns:
+        aggregations.append(pl.col(column).mean().alias(f"avg_{column}"))
+
+    result = baskets.group_by(["month", "account_id"]).agg(aggregations)
+
+    # Join all possible combinations with the aggregated results
+    monthly_result = (
+        all_combinations.join(
+            result,
+            on=["month", "account_id"],
+            how="left"
+        )
+        .fill_null(0)
+        .sort(["month", "account_id"])
+    )
+
+    return monthly_result
+
+def find_repetitive_purchasers(df, user_id_col, sku_id_col, date_col):
+    return df.select([
+        user_id_col, 
+        sku_id_col, 
+        date_col
+    ]).unique().group_by([user_id_col, sku_id_col]).agg(
+        pl.col("*").count().alias("total_purchases")
+    ).filter(
+        pl.col("total_purchases") >= 12
+    )
+
+def build_matrix_item_user(transacciones, col_sku, col_account):
+    """
+    Construye una matriz usuario-item basada en la frecuencia de compra de SKU por cliente.
+    
+    Parámetros:
+    transacciones (DataFrame): DataFrame de transacciones.
+    col_sku (str): Nombre de la columna que contiene los SKU.
+    col_account (str): Nombre de la columna que contiene los IDs de las cuentas de los clientes.
+
+    Retorna:
+    dict: Matriz usuario-item representada como un diccionario anidado.
+    """
+    item_user_matrix = defaultdict(lambda: defaultdict(int))
+    
+    for row in transacciones.iter_rows(named=True):
+        for sku in row[col_sku]:
+            item_user_matrix[sku][row[col_account]] += 1
+    
+    return item_user_matrix
+
+
+def item_to_vector(item, item_user_matrix, user_baskets):
+    """
+    Returns a vector representation of an item.
+
+    Parameters:
+    item (str): The item to convert to a vector.
+    item_user_matrix (dict): A dictionary where each key is an item and each value is another dictionary.
+                             The inner dictionary has users as keys and the count of the item in the user's baskets as values.
+    user_baskets (dict): A dictionary where each key is a user and each value is a list of items in the user's baskets.
+
+    Returns:
+    list: A list of integers representing the count of the item in each user's baskets.
+    """
+    return [item_user_matrix[item][user] for user in user_baskets]
+
+def matrix_to_vector(item_user_matrix, users, col_account):
+    """
+    Convierte la matriz usuario-item en un formato adecuado para calcular la similitud coseno.
+
+    Parámetros:
+    item_user_matrix (dict): Matriz usuario-item representada como un diccionario anidado.
+    users (list): Lista de usuarios (IDs de cuentas).
+    col_account (str): Nombre de la columna que contiene los IDs de las cuentas de los clientes.
+
+    Retorna:
+    np.array: Matriz de vectores donde cada fila representa un SKU y cada columna un usuario.
+    list: Lista de ítems (SKU) en el orden en que aparecen en la matriz de vectores.
+    """
+    item_user_vectors = []
+    items = list(item_user_matrix.keys())
+
+    for item in items:
+        item_user_vectors.append([item_user_matrix[item].get(user, 0) for user in users])
+    
+    return np.array(item_user_vectors), items
+
+def update_item_user_matrix(acc, user_basket_pair):
+    """
+    Updates the item-user matrix with the given user-baskets pair.
+
+    Parameters:
+    acc (dict): The accumulator dictionary, where each key is an item and each value is another dictionary.
+               The inner dictionary has users as keys and the count of the item in the user's baskets as values.
+    user_basket_pair (tuple): A tuple containing the user ID and their baskets.
+
+    Returns:
+    dict: The updated accumulator dictionary.
+    """
+    user, baskets = user_basket_pair
+    for basket in baskets:
+        for item in basket:
+            acc[item][user] += 1
+    return acc
 
 def fit_ordered_logistic_regression(df: pl.DataFrame, target_column: str, numerical_features: list):
     """
