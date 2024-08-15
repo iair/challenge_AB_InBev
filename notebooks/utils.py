@@ -33,7 +33,7 @@ def read_csv_with_lowercase_columns(file_path: str) -> pl.DataFrame:
     pl.DataFrame: Un DataFrame de polars con nombres de columnas en minúsculas.
     """
     # Leer el archivo CSV
-    df = pl.read_csv(file_path,new_columns=["id"])
+    df = pl.read_csv(file_path)
     
     # Transformar los nombres de las columnas a minúsculas
     df = df.rename({col: col.lower() for col in df.columns})
@@ -57,6 +57,37 @@ def transform_to_date(df: pl.DataFrame, columns: list) -> pl.DataFrame:
             pl.col(col).cast(pl.Utf8).str.strptime(pl.Date, format="%Y%m%d").alias(col)
         )
     return df.with_columns(transformations)
+
+def create_baskets(
+    df: pl.DataFrame,
+    group_cols: list[str],
+    list_col: str,
+    sum_cols: list[str],
+    sort_cols: list[str]
+) -> pl.DataFrame:
+    """
+    Process a DataFrame of transactions to create a dataframe of baskets by grouping by specified columns,
+    aggregating one column's values into a list, and summing the specified numeric columns,
+    and sorting the result by the specified columns.
+
+    Parameters:
+    df (pl.DataFrame): The original Polars DataFrame.
+    group_cols (list[str]): List of column names to group by.
+    list_col (str): The column whose values should be aggregated into a list.
+    sum_cols (list[str]): List of numeric column names on which to perform a sum.
+    sort_cols (list[str]): List of column names to sort the result by.
+
+    Returns:
+    pl.DataFrame: The resulting grouped and aggregated Polars DataFrame.
+    """
+    agg_exprs = [
+        pl.col(list_col).alias(list_col),
+        pl.col(list_col).count().alias(f"{list_col}_count")
+    ] + [pl.col(col).sum().alias(col) for col in sum_cols]
+    
+    result = df.group_by(group_cols).agg(agg_exprs)
+    
+    return result.sort(sort_cols)
 
 
 def group_aggregate_sum(df: pl.DataFrame, group_by_cols: list, list_col: str, sum_cols: list) -> pl.DataFrame:
@@ -165,6 +196,34 @@ def plot_histograms(df, columns):
 
     plt.tight_layout()
     plt.show()
+    
+def plot_boxplots(df: pl.DataFrame, columns: list):
+    """
+    Genera boxplots para cada columna en la lista de columnas ingresada, dispuestos en una sola fila.
+
+    Parameters:
+    df (pl.DataFrame): El DataFrame de polars.
+    columns (list): Una lista de nombres de columnas para las cuales se generarán los boxplots.
+    """
+    # Convertir las columnas a pandas para la compatibilidad con matplotlib
+    df_pandas = df.select(columns).to_pandas()
+    
+    # Crear una figura con subplots dispuestos en una fila
+    fig, axes = plt.subplots(nrows=1, ncols=len(columns), figsize=(len(columns) * 4, 6))
+
+    # Si solo hay una columna, axes no es un array, lo convertimos a uno
+    if len(columns) == 1:
+        axes = [axes]
+
+    # Generar un boxplot para cada columna
+    for ax, col in zip(axes, columns):
+        ax.boxplot(df_pandas[col].dropna(), vert=False, patch_artist=True)
+        ax.set_title(f'Boxplot de {col}')
+        ax.set_xlabel(col)
+
+    plt.tight_layout()
+    plt.show()
+
 
 def item_to_vector(item, item_user_matrix, user_baskets):
     """
@@ -460,25 +519,6 @@ def group_and_describe_with_percentiles(df: pl.DataFrame, group_by_col: str, num
     ])
 
     return result
-
-def plot_boxplots(df: pl.DataFrame, columns: list):
-    """
-    Genera un boxplot para cada columna en la lista de columnas ingresada.
-
-    Parameters:
-    df (pl.DataFrame): El DataFrame de polars.
-    columns (list): Una lista de nombres de columnas para las cuales se generarán los boxplots.
-    """
-    # Convertir las columnas a pandas para la compatibilidad con matplotlib
-    df_pandas = df.select(columns).to_pandas()
-    
-    # Generar un boxplot para cada columna
-    for col in columns:
-        plt.figure(figsize=(8, 6))
-        plt.boxplot(df_pandas[col].dropna(), vert=False, patch_artist=True)
-        plt.title(f'Boxplot de {col}')
-        plt.xlabel(col)
-        plt.show()
         
 def chi2_test(df: pl.DataFrame, col1: str, col2: str, confidence_level: float = 0.95):
     """
