@@ -770,81 +770,6 @@ def find_repetitive_purchasers(df, user_id_col, sku_id_col, date_col):
         pl.col("total_purchases") >= 12
     )
 
-def build_matrix_item_user(transacciones, col_sku, col_account):
-    """
-    Construye una matriz usuario-item basada en la frecuencia de compra de SKU por cliente.
-    
-    Parámetros:
-    transacciones (DataFrame): DataFrame de transacciones.
-    col_sku (str): Nombre de la columna que contiene los SKU.
-    col_account (str): Nombre de la columna que contiene los IDs de las cuentas de los clientes.
-
-    Retorna:
-    dict: Matriz usuario-item representada como un diccionario anidado.
-    """
-    item_user_matrix = defaultdict(lambda: defaultdict(int))
-    
-    for row in transacciones.iter_rows(named=True):
-        for sku in row[col_sku]:
-            item_user_matrix[sku][row[col_account]] += 1
-    
-    return item_user_matrix
-
-
-def item_to_vector(item, item_user_matrix, user_baskets):
-    """
-    Returns a vector representation of an item.
-
-    Parameters:
-    item (str): The item to convert to a vector.
-    item_user_matrix (dict): A dictionary where each key is an item and each value is another dictionary.
-                             The inner dictionary has users as keys and the count of the item in the user's baskets as values.
-    user_baskets (dict): A dictionary where each key is a user and each value is a list of items in the user's baskets.
-
-    Returns:
-    list: A list of integers representing the count of the item in each user's baskets.
-    """
-    return [item_user_matrix[item][user] for user in user_baskets]
-
-def matrix_to_vector(item_user_matrix, users, col_account):
-    """
-    Convierte la matriz usuario-item en un formato adecuado para calcular la similitud coseno.
-
-    Parámetros:
-    item_user_matrix (dict): Matriz usuario-item representada como un diccionario anidado.
-    users (list): Lista de usuarios (IDs de cuentas).
-    col_account (str): Nombre de la columna que contiene los IDs de las cuentas de los clientes.
-
-    Retorna:
-    np.array: Matriz de vectores donde cada fila representa un SKU y cada columna un usuario.
-    list: Lista de ítems (SKU) en el orden en que aparecen en la matriz de vectores.
-    """
-    item_user_vectors = []
-    items = list(item_user_matrix.keys())
-
-    for item in items:
-        item_user_vectors.append([item_user_matrix[item].get(user, 0) for user in users])
-    
-    return np.array(item_user_vectors), items
-
-def update_item_user_matrix(acc, user_basket_pair):
-    """
-    Updates the item-user matrix with the given user-baskets pair.
-
-    Parameters:
-    acc (dict): The accumulator dictionary, where each key is an item and each value is another dictionary.
-               The inner dictionary has users as keys and the count of the item in the user's baskets as values.
-    user_basket_pair (tuple): A tuple containing the user ID and their baskets.
-
-    Returns:
-    dict: The updated accumulator dictionary.
-    """
-    user, baskets = user_basket_pair
-    for basket in baskets:
-        for item in basket:
-            acc[item][user] += 1
-    return acc
-
 def fit_ordered_logistic_regression(df: pl.DataFrame, target_column: str, numerical_features: list):
     """
     Ajusta un modelo de Regresión Logística Ordenada utilizando variables numéricas y una variable categórica ordinal como objetivo.
@@ -877,3 +802,23 @@ def fit_ordered_logistic_regression(df: pl.DataFrame, target_column: str, numeri
 
     # Mostrar los resultados
     return result
+
+def build_matrix_item_user(transacciones, col_sku, col_account):
+    """
+    Construye una matriz usuario-item basada en la frecuencia de compra de SKU por cliente.
+    
+    Parámetros:
+    transacciones (DataFrame): DataFrame de transacciones.
+    col_sku (str): Nombre de la columna que contiene los SKU.
+    col_account (str): Nombre de la columna que contiene los IDs de las cuentas de los clientes.
+
+    Retorna:
+    dict: Matriz usuario-item representada como un diccionario anidado.
+    """
+    item_user_matrix = defaultdict(lambda: defaultdict(int))
+    
+    for row in transacciones.iter_rows(named=True):
+        for sku in row[col_sku]:
+            item_user_matrix[sku][row[col_account]] += 1
+    
+    return item_user_matrix
