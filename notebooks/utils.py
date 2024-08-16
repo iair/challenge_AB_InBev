@@ -803,22 +803,44 @@ def fit_ordered_logistic_regression(df: pl.DataFrame, target_column: str, numeri
     # Mostrar los resultados
     return result
 
-def build_matrix_item_user(transacciones, col_sku, col_account):
+def build_item_user_matrix_by_cluster(df: pd.DataFrame, cluster_col: str = 'cluster', sku_col: str = 'sku_id', user_col: str = 'account_id', qty_col: str = 'items_phys_cases') -> Dict[Any, Dict[str, Dict[str, int]]]:
     """
-    Construye una matriz usuario-item basada en la frecuencia de compra de SKU por cliente.
-    
-    Parámetros:
-    transacciones (DataFrame): DataFrame de transacciones.
-    col_sku (str): Nombre de la columna que contiene los SKU.
-    col_account (str): Nombre de la columna que contiene los IDs de las cuentas de los clientes.
+    Builds an item-user matrix for each cluster, where the rows represent SKUs (items)
+    and the columns represent users. The values in the matrix are the total quantities of
+    items purchased by each user within each cluster.
 
-    Retorna:
-    dict: Matriz usuario-item representada como un diccionario anidado.
+    Args:
+        df (pd.DataFrame): The DataFrame containing transaction data along with cluster assignments.
+        cluster_col (str): The name of the column representing the cluster assignment.
+        sku_col (str): The name of the column representing the SKUs (items).
+        user_col (str): The name of the column representing the user IDs.
+        qty_col (str): The name of the column representing the quantity of items purchased.
+
+    Returns:
+        Dict: A dictionary where each key is a cluster ID, and the value is another dictionary
+              representing the item-user matrix for that cluster. In the item-user matrix:
+              - The keys are SKUs (items).
+              - The inner keys are user IDs.
+              - The inner values are the total quantities of each SKU purchased by the corresponding user.
+    
+    Example:
+        cluster_item_user_matrices = build_item_user_matrix_by_cluster(pd_transactions_cluster, 
+                                                                       cluster_col='cluster',
+                                                                       sku_col='sku_id',
+                                                                       user_col='account_id',
+                                                                       qty_col='items_phys_cases')
     """
-    item_user_matrix = defaultdict(lambda: defaultdict(int))
-    
-    for row in transacciones.iter_rows(named=True):
-        for sku in row[col_sku]:
-            item_user_matrix[sku][row[col_account]] += 1
-    
-    return item_user_matrix
+    cluster_item_user_matrices = {}
+
+    # Group by clusters
+    for cluster_id in df[cluster_col].unique():
+        cluster_df = df[df[cluster_col] == cluster_id]
+        item_user_matrix = defaultdict(lambda: defaultdict(int))
+        
+        for _, row in cluster_df.iterrows():
+            for sku in row[sku_col]:
+                item_user_matrix[sku][row[user_col]] += row[qty_col]
+        
+        cluster_item_user_matrices[cluster_id] = item_user_matrix
+
+    return cluster_item_user_matrices
