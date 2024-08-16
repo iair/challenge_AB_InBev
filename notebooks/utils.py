@@ -13,12 +13,12 @@ import statsmodels.api as sm
 from scipy.stats import kruskal
 from statsmodels.miscmodels.ordinal_model import OrderedModel
 from sklearn.model_selection import train_test_split,cross_val_score
-from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, accuracy_score
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics.pairwise import cosine_similarity
+from typing import Dict, Tuple, Any,List
 
 def read_csv_with_lowercase_columns(file_path: str) -> pl.DataFrame:
     """
@@ -844,3 +844,234 @@ def build_item_user_matrix_by_cluster(df: pd.DataFrame, cluster_col: str = 'clus
         cluster_item_user_matrices[cluster_id] = item_user_matrix
 
     return cluster_item_user_matrices
+
+def compute_similarity_by_cluster(cluster_item_user_matrices: Dict[Any, Dict[str, Dict[str, int]]], 
+                                  df: pd.DataFrame, 
+                                  cluster_col: str = 'cluster', 
+                                  user_col: str = 'account_id') -> Dict[Any, Tuple[np.ndarray, list]]:
+    """
+    Computes item similarity matrices for each cluster based on the item-user matrices.
+
+    Args:
+        cluster_item_user_matrices (Dict): A dictionary where each key is a cluster ID, and the value is another
+                                           dictionary representing the item-user matrix for that cluster.
+        df (pd.DataFrame): The DataFrame containing transaction data along with cluster assignments.
+        cluster_col (str): The name of the column representing the cluster assignment.
+        user_col (str): The name of the column representing the user IDs.
+
+    Returns:
+        Dict: A dictionary where each key is a cluster ID, and the value is a tuple containing:
+              - The item similarity matrix for that cluster (as a 2D numpy array).
+              - A list of items (SKUs) corresponding to the rows/columns of the similarity matrix.
+
+    Example:
+        cluster_item_similarity = compute_similarity_by_cluster(cluster_item_user_matrices, 
+                                                                pd_transactions_cluster, 
+                                                                cluster_col='cluster', 
+                                                                user_col='account_id')
+    """
+    cluster_item_similarity = {}
+
+    for cluster_id, item_user_matrix in cluster_item_user_matrices.items():
+        # Get the list of users for the current cluster
+        users = list(df[df[cluster_col] == cluster_id][user_col].unique())
+        # Get the list of items (SKUs) in the current cluster
+        items = list(item_user_matrix.keys())
+
+        # Create the item-user matrix as a numpy array
+        item_user_vectors = np.array([
+            [item_user_matrix[item].get(user, 0) for user in users]
+            for item in items
+        ])
+
+        # Compute the cosine similarity between items
+        item_similarity = cosine_similarity(item_user_vectors)
+        cluster_item_similarity[cluster_id] = (item_similarity, items)
+
+    return cluster_item_similarity
+
+def predict_next_basket_clustered(account_id, 
+                                  cluster_item_similarity, 
+                                  df, 
+                                  user_col='account_id', 
+                                  cluster_col='cluster', 
+                                  sku_col='sku_id', 
+                                  k=5):
+    # Check if the account_id exists in the DataFrame
+    if account_id not in df[user_col].values:
+        raise ValueError(f"Account ID {account_id} does not exist in the dataset.")
+    
+    # Determine the user's cluster
+    user_cluster = df[df[user_col] == account_id][cluster_col].iloc[0]
+    
+    # Get the similarity matrix and item list for the user's cluster
+    item_similarity, items = cluster_item_similarity[user_cluster]
+    
+    # Retrieve the user's purchase history
+    user_history = df[df[user_col] == account_id][sku_col].tolist()
+    
+    if len(user_history) == 0:
+        raise ValueError(f"No purchase history found for Account ID {account_id}.")
+    
+    # Flatten the list of lists into a single list of items
+    all_items = [sku for basket in user_history for sku in basket]
+    item_freq = defaultdict(int)
+
+    # Count the frequency of each item in the user's history
+    for item in all_items:
+        item_freq[item] += 1
+
+    # Generate recommendations based on item similarity within the cluster
+    recommendations = []
+    for item, freq in item_freq.items():
+        if item in items:
+            similar_items_idx = np.argsort(item_similarity[items.index(item)])[::-1][:k]
+            recommendations.extend([(items[i], item_similarity[items.index(item), i] * freq) for i in similar_items_idx])
+
+    # Sort recommendations by score and return the top-k items
+    recommendations = sorted(recommendations, key=lambda x: x[1], reverse=True)
+    return [r[0] for r in recommendations[:k]]
+
+def precision_at_k(predicted, actual, k):
+    """
+    Calculates the precision at k for a set of predicted items against the actual items.
+
+    Precision at k is the proportion of the top-k predicted items that are actually present
+    in the set of actual items.
+
+    Args:
+        predicted (list): A list of items (e.g., SKUs) that are predicted to be in the next basket.
+        actual (list): A list of items that are actually in the next basket.
+        k (int): The number of top predictions to consider.
+
+    Returns:
+        float: The precision at k, which is the ratio of correctly predicted items to the total
+               number of items in the top-k predictions. The value ranges from 0 to 1.
+
+    Example:
+        predicted = ['item1', 'item2', 'item3', 'item4']
+        actual = ['item2', 'item4', 'item6']
+        k = 3
+        precision_at_k(predicted, actual, k)
+        # Output: 0.3333  (1 out of the top 3 predicted items is correct)
+
+    Notes:
+        - The function assumes that both `predicted` and `actual` are lists of items, and that `k` is a positive integer.
+        - If k is larger than the length of the predicted list, the function will consider all predicted items.
+    """
+    # Create sets for the predicted and actual items (limited to the top-k predicted items)
+    predicted_set = set(predicted[:k])
+    actual_set = set(actual)
+    # Calculate and return the precision at k
+    return len(predicted_set & actual_set) / len(predicted_set)
+
+def recall_at_k(predicted, actual, k):
+    """
+    Calculates the recall at k for a set of predicted items against the actual items.
+
+    Recall at k is the proportion of the actual items that are successfully predicted
+    within the top-k predicted items.
+
+    Args:
+        predicted (list): A list of items (e.g., SKUs) that are predicted to be in the next basket.
+        actual (list): A list of items that are actually in the next basket.
+        k (int): The number of top predictions to consider.
+
+    Returns:
+        float: The recall at k, which is the ratio of correctly predicted items to the total
+               number of actual items. The value ranges from 0 to 1.
+
+    Example:
+        predicted = ['item1', 'item2', 'item3', 'item4']
+        actual = ['item2', 'item4', 'item6']
+        k = 3
+        recall_at_k(predicted, actual, k)
+        # Output: 0.3333  (1 out of the 3 actual items is found in the top 3 predictions)
+
+    Notes:
+        - The function assumes that both `predicted` and `actual` are lists of items, and that `k` is a positive integer.
+        - If k is larger than the length of the predicted list, the function will consider all predicted items.
+        - If `actual` is empty, the recall is not defined and may result in a division by zero.
+    """
+    # Create sets for the predicted and actual items (limited to the top-k predicted items)
+    predicted_set = set(predicted[:k])
+    actual_set = set(actual)
+    
+    # Calculate and return the recall at k
+    return len(predicted_set & actual_set) / len(actual_set)
+
+def f1_at_k(precision: float, recall: float) -> float:
+    """
+    Calculates the F1 score at k, which is the harmonic mean of precision and recall.
+
+    The F1 score is a measure of a model's accuracy that considers both the precision
+    and the recall of the model to compute the balance between the two. It is particularly
+    useful when you need to balance the trade-off between precision and recall.
+
+    Args:
+        precision (float): The precision value at k, typically ranging from 0 to 1.
+        recall (float): The recall value at k, typically ranging from 0 to 1.
+
+    Returns:
+        float: The F1 score at k, which ranges from 0 to 1. A higher value indicates
+               a better balance between precision and recall. If both precision and recall are 0,
+               the function returns 0 to avoid division by zero.
+
+    Example:
+        precision = 0.5
+        recall = 0.4
+        f1_at_k(precision, recall)
+        # Output: 0.4444  (calculated as 2 * (0.5 * 0.4) / (0.5 + 0.4))
+
+    Notes:
+        - The F1 score is only meaningful when both precision and recall are non-zero.
+        - If both precision and recall are zero, the function will return 0, which indicates
+          no correct predictions and/or no relevant items in the actual set.
+    """
+    # Check if both precision and recall are zero to avoid division by zero
+    if precision + recall == 0:
+        return 0
+    
+    # Calculate and return the F1 score at k
+    return 2 * (precision * recall) / (precision + recall)
+
+def precision_at_k_over_n(predicted: list, actual: list, n: int, k: int) -> float:
+    """
+    Calculates a modified precision at k, where the number of correctly predicted items
+    is divided by a given value n instead of the total number of predicted items.
+
+    This function can be used to evaluate precision in scenarios where the standard
+    precision formula needs to be adjusted by a factor of n.
+
+    Args:
+        predicted (list): A list of items (e.g., SKUs) that are predicted to be in the next basket.
+        actual (list): A list of items that are actually in the next basket.
+        n (int): The divisor used in the precision calculation. 
+        k (int): The number of top predictions to consider.
+
+    Returns:
+        float: The modified precision at k, calculated as the number of correctly predicted items
+               divided by n. The value ranges depending on the choice of n and the overlap between
+               predicted and actual items.
+
+    Example:
+        predicted = ['item1', 'item2', 'item3', 'item4']
+        actual = ['item2', 'item4', 'item6']
+        n = 3
+        k = 3
+        precision_at_k_over_n(predicted, actual, n, k)
+        # Output: 0.3333  (1 correct prediction divided by n=3)
+
+    Notes:
+        - The function assumes that both `predicted` and `actual` are lists of items, and that `k` and `n` are positive integers.
+        - If k is larger than the length of the predicted list, the function will consider all predicted items.
+        - This function is a variation of precision that introduces an external divisor n to control the calculation.
+    """
+    # Create sets for the predicted and actual items (limited to the top-k predicted items)
+    predicted_set = set(predicted[:k])
+    actual_set = set(actual)
+    
+    # Calculate the modified precision at k
+    result = len(predicted_set & actual_set) / n
+    
+    return result
