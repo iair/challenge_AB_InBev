@@ -156,5 +156,5 @@ cython_debug/
 
 # ignore the raw data
 /data/raw
-/data/preprocessed
+/data/processed
 /data/external
