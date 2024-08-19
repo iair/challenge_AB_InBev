@@ -981,7 +981,7 @@ def predict_next_basket_for_user(account_id: str,
                                  user_col: str = 'account_id', 
                                  cluster_col: str = 'cluster', 
                                  sku_col: str = 'sku_id', 
-                                 k: int = 14):
+                                 k: int = 5):
     """
     Predict the next basket for a specific user based on item similarity within their cluster.
     If the primary prediction method does not fill the required number of recommendations, fallback strategies are applied.
