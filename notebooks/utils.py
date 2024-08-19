@@ -810,31 +810,20 @@ def fit_ordered_logistic_regression(df: pl.DataFrame, target_column: str, numeri
 # This are the functions used in modeling_mvp1_TIFUKNN+clustering.ipynb file
 def build_item_user_matrix_by_cluster(df: pd.DataFrame, cluster_col: str = 'cluster', sku_col: str = 'sku_id', user_col: str = 'account_id', qty_col: str = 'items_phys_cases') -> Dict[Any, Dict[str, Dict[str, int]]]:
     """
-    Builds an item-user matrix for each cluster, where the rows represent SKUs (items)
-    and the columns represent users. The values in the matrix are the total quantities of
-    items purchased by each user within each cluster.
-
-    Args:
-        df (pd.DataFrame): The DataFrame containing transaction data along with cluster assignments.
-        cluster_col (str): The name of the column representing the cluster assignment.
-        sku_col (str): The name of the column representing the SKUs (items).
-        user_col (str): The name of the column representing the user IDs.
-        qty_col (str): The name of the column representing the quantity of items purchased.
-
-    Returns:
-        Dict: A dictionary where each key is a cluster ID, and the value is another dictionary
-              representing the item-user matrix for that cluster. In the item-user matrix:
-              - The keys are SKUs (items).
-              - The inner keys are user IDs.
-              - The inner values are the total quantities of each SKU purchased by the corresponding user.
+    Builds an item-user matrix for each cluster in the input DataFrame.
     
-    Example:
-        cluster_item_user_matrices = build_item_user_matrix_by_cluster(pd_transactions_cluster, 
-                                                                       cluster_col='cluster',
-                                                                       sku_col='sku_id',
-                                                                       user_col='account_id',
-                                                                       qty_col='items_phys_cases')
+    Parameters:
+    df (pd.DataFrame): The input DataFrame containing cluster, SKU, user, and quantity information.
+    cluster_col (str): The column name in the DataFrame that represents the cluster ID (default is 'cluster').
+    sku_col (str): The column name in the DataFrame that represents the SKU ID (default is 'sku_id').
+    user_col (str): The column name in the DataFrame that represents the user ID (default is 'account_id').
+    qty_col (str): The column name in the DataFrame that represents the quantity of items purchased (default is 'items_phys_cases').
+    
+    Returns:
+    Dict[Any, Dict[str, Dict[str, int]]]: A dictionary where each key is a cluster ID, and the corresponding value is another dictionary.
+    The inner dictionary has SKU IDs as keys and user IDs as values, with the value being the total quantity of items purchased by the user for that SKU in the cluster.
     """
+
     cluster_item_user_matrices = {}
 
     # Group by clusters
@@ -843,8 +832,7 @@ def build_item_user_matrix_by_cluster(df: pd.DataFrame, cluster_col: str = 'clus
         item_user_matrix = defaultdict(lambda: defaultdict(int))
         
         for _, row in cluster_df.iterrows():
-            for sku in row[sku_col]:
-                item_user_matrix[sku][row[user_col]] += row[qty_col]
+            item_user_matrix[row[sku_col]][row[user_col]] += row[qty_col]
         
         cluster_item_user_matrices[cluster_id] = item_user_matrix
 
@@ -856,31 +844,24 @@ def compute_similarity_by_cluster(cluster_item_user_matrices: Dict[Any, Dict[str
                                   user_col: str = 'account_id') -> Dict[Any, Tuple[np.ndarray, list]]:
     """
     Computes item similarity matrices for each cluster based on the item-user matrices.
-
-    Args:
-        cluster_item_user_matrices (Dict): A dictionary where each key is a cluster ID, and the value is another
-                                           dictionary representing the item-user matrix for that cluster.
-        df (pd.DataFrame): The DataFrame containing transaction data along with cluster assignments.
-        cluster_col (str): The name of the column representing the cluster assignment.
-        user_col (str): The name of the column representing the user IDs.
-
+    
+    Parameters:
+    cluster_item_user_matrices (Dict[Any, Dict[str, Dict[str, int]]]): A dictionary where each key is a cluster ID, and the corresponding value is another dictionary.
+    The inner dictionary has SKU IDs as keys and user IDs as values, with the value being the total quantity of items purchased by the user for that SKU in the cluster.
+    df (pd.DataFrame): The input DataFrame containing cluster, SKU, user, and quantity information.
+    cluster_col (str): The column name in the DataFrame that represents the cluster ID (default is 'cluster').
+    user_col (str): The column name in the DataFrame that represents the user ID (default is 'account_id').
+    
     Returns:
-        Dict: A dictionary where each key is a cluster ID, and the value is a tuple containing:
-              - The item similarity matrix for that cluster (as a 2D numpy array).
-              - A list of items (SKUs) corresponding to the rows/columns of the similarity matrix.
-
-    Example:
-        cluster_item_similarity = compute_similarity_by_cluster(cluster_item_user_matrices, 
-                                                                pd_transactions_cluster, 
-                                                                cluster_col='cluster', 
-                                                                user_col='account_id')
+    Dict[Any, Tuple[np.ndarray, list]]: A dictionary where each key is a cluster ID, and the corresponding value is a tuple.
+    The tuple contains the cosine similarity matrix between items in the cluster as a numpy array, and the list of actual SKUs in the cluster.
     """
     cluster_item_similarity = {}
 
     for cluster_id, item_user_matrix in cluster_item_user_matrices.items():
         # Get the list of users for the current cluster
         users = list(df[df[cluster_col] == cluster_id][user_col].unique())
-        # Get the list of items (SKUs) in the current cluster
+        # Get the list of actual SKUs in the current cluster
         items = list(item_user_matrix.keys())
 
         # Create the item-user matrix as a numpy array
@@ -895,53 +876,150 @@ def compute_similarity_by_cluster(cluster_item_user_matrices: Dict[Any, Dict[str
 
     return cluster_item_similarity
 
-def predict_next_basket_clustered(account_id, 
-                                  cluster_item_similarity, 
-                                  df, 
-                                  user_col='account_id', 
-                                  cluster_col='cluster', 
-                                  sku_col='sku_id', 
-                                  k=5):
+
+def predict_next_baskets_for_all(test_data: pd.DataFrame, 
+                                 cluster_item_similarity: Dict[Any, Tuple[np.ndarray, list]], 
+                                 train_data: pd.DataFrame, 
+                                 user_col: str = 'account_id', 
+                                 cluster_col: str = 'cluster', 
+                                 sku_col: str = 'sku_id', 
+                                 k: int = 5):
     """
-    Predict the next basket for a given account ID based on item similarity within a cluster.
+    Predict the next basket for all users in the test dataset based on item similarity within clusters.
+    If the primary prediction method does not fill the required number of recommendations, fallback strategies are applied.
 
     Parameters:
-        account_id (int): The ID of the account to generate recommendations for.
-        cluster_item_similarity (Dict): A dictionary where each key is a cluster ID, and the value is a tuple containing:
-            - The item similarity matrix for that cluster (as a 2D numpy array).
-            - A list of items (SKUs) corresponding to the rows/columns of the similarity matrix.
-        df (pd.DataFrame): The DataFrame containing transaction data along with cluster assignments.
-        user_col (str): The name of the column representing the user IDs (default is 'account_id').
-        cluster_col (str): The name of the column representing the cluster assignment (default is 'cluster').
-        sku_col (str): The name of the column representing the SKUs (default is 'sku_id').
-        k (int): The number of recommendations to return (default is 5).
+    - test_data (pd.DataFrame): The test dataset containing user information and purchase history.
+    - cluster_item_similarity (Dict[Any, Tuple[np.ndarray, list]]): A dictionary mapping each cluster to its item similarity matrix and item list.
+    - train_data (pd.DataFrame): The training dataset containing user purchase history.
+    - user_col (str): The column name for user IDs in the dataset (default is 'account_id').
+    - cluster_col (str): The column name for cluster assignments in the dataset (default is 'cluster').
+    - sku_col (str): The column name for SKUs in the dataset (default is 'sku_id').
+    - k (int): The number of top items to recommend (default is 5).
 
     Returns:
-        list: A list of the top k recommended SKUs based on the user's history and item similarity within the cluster.
+    - predicted_baskets (dict): A dictionary mapping each user to their predicted basket.
+    - ground_truth_baskets (dict): A dictionary mapping each user to their ground truth basket.
+    - user_histories (dict): A dictionary mapping each user to their purchase history.
+    - main_strategy_count (int): The number of times the main strategy was used.
+    - fallback1_count (int): The number of times the first fallback strategy was used.
+    - fallback2_count (int): The number of times the second fallback strategy was used.
     """
-    # Check if the account_id exists in the DataFrame
-    if account_id not in df[user_col].values:
-        raise ValueError(f"Account ID {account_id} does not exist in the dataset.")
     
-    # Determine the user's cluster
-    user_cluster = df[df[user_col] == account_id][cluster_col].iloc[0]
+    predicted_baskets = {}
+    ground_truth_baskets = {}
+    user_histories = {}
+    
+    main_strategy_count = 0
+    fallback1_count = 0
+    fallback2_count = 0
+
+    # Loop through each user in the test dataset
+    for account_id in test_data[user_col].unique():
+        # Get the cluster of the user
+        user_cluster = test_data[test_data[user_col] == account_id][cluster_col].iloc[0]
+        
+        # Get the similarity matrix and item list for the user's cluster
+        item_similarity, items = cluster_item_similarity[user_cluster]
+        
+        # Retrieve the user's purchase history from the training data
+        user_history = train_data[train_data[user_col] == account_id][sku_col].tolist()
+        user_histories[account_id] = user_history
+        
+        if len(user_history) == 0:
+            continue
+        
+        # Count the frequency of each item in the user's history
+        item_freq = defaultdict(int)
+        for item in user_history:
+            if item in items:
+                item_freq[item] += 1
+
+        # Generate recommendations based on item similarity within the cluster
+        recommendations = []
+        for item, freq in item_freq.items():
+            if item in items:
+                similar_items_idx = np.argsort(item_similarity[items.index(item)])[::-1][:k]
+                recommendations.extend([(items[i], item_similarity[items.index(item), i] * freq) for i in similar_items_idx])
+
+        # Sort recommendations by score
+        recommendations = sorted(recommendations, key=lambda x: x[1], reverse=True)
+        final_recommendations = [r[0] for r in recommendations[:k]]
+
+        # If the number of recommendations is less than k, apply fallback strategies
+        if len(final_recommendations) < k:
+            # Fallback 1: Most common items purchased by the user that are also common in the cluster
+            cluster_common_items = Counter([item for user in train_data[train_data[cluster_col] == user_cluster][user_col].unique() 
+                                            for item in train_data[train_data[user_col] == user][sku_col].tolist()])
+            user_common_items = Counter(user_history)
+            common_items = [item for item in user_common_items if item in cluster_common_items]
+            common_items = sorted(common_items, key=lambda x: cluster_common_items[x], reverse=True)
+            final_recommendations.extend(common_items[:k - len(final_recommendations)])
+            
+            if len(final_recommendations) < k:
+                # Fallback 2: Most common items purchased only by the user
+                user_specific_items = [item for item in user_common_items if item not in common_items]
+                final_recommendations.extend(user_specific_items[:(k - len(final_recommendations))])
+                fallback2_count += 1
+            else:
+                fallback1_count += 1
+        else:
+            main_strategy_count += 1
+
+        # Store the top-k items in predicted_baskets
+        predicted_baskets[account_id] = final_recommendations[:k]
+        
+        # Store the ground truth basket for the user
+        ground_truth_baskets[account_id] = test_data[test_data[user_col] == account_id][sku_col].tolist()
+
+    return predicted_baskets, ground_truth_baskets, user_histories, main_strategy_count, fallback1_count, fallback2_count
+
+def predict_next_basket_for_user(account_id: str, 
+                                 test_data: pd.DataFrame, 
+                                 cluster_item_similarity: Dict[Any, Tuple[np.ndarray, list]], 
+                                 train_data: pd.DataFrame, 
+                                 user_col: str = 'account_id', 
+                                 cluster_col: str = 'cluster', 
+                                 sku_col: str = 'sku_id', 
+                                 k: int = 14):
+    """
+    Predict the next basket for a specific user based on item similarity within their cluster.
+    If the primary prediction method does not fill the required number of recommendations, fallback strategies are applied.
+
+    Parameters:
+    - account_id (str): The ID of the user to generate the prediction for.
+    - test_data (pd.DataFrame): The test dataset containing information about users and their transactions.
+    - cluster_item_similarity (dict): A dictionary containing item similarity matrices for each cluster.
+    - train_data (pd.DataFrame): The training dataset containing historical transactions.
+    - user_col (str): The column name for user IDs in the dataset.
+    - cluster_col (str): The column name for cluster IDs in the dataset.
+    - sku_col (str): The column name for SKU/item IDs in the dataset.
+    - k (int): The number of recommendations to generate.
+
+    Returns:
+    - list: A list of the top-k recommended SKUs for the user.
+    """
+    # Check if the user exists in the test dataset
+    if account_id not in test_data[user_col].values:
+        raise ValueError(f"Account ID {account_id} does not exist in the test dataset.")
+    
+    # Get the cluster of the user
+    user_cluster = test_data[test_data[user_col] == account_id][cluster_col].iloc[0]
     
     # Get the similarity matrix and item list for the user's cluster
     item_similarity, items = cluster_item_similarity[user_cluster]
     
-    # Retrieve the user's purchase history
-    user_history = df[df[user_col] == account_id][sku_col].tolist()
+    # Retrieve the user's purchase history from the training data
+    user_history = train_data[train_data[user_col] == account_id][sku_col].tolist()
     
     if len(user_history) == 0:
         raise ValueError(f"No purchase history found for Account ID {account_id}.")
     
-    # Flatten the list of lists into a single list of items
-    all_items = [sku for basket in user_history for sku in basket]
-    item_freq = defaultdict(int)
-
     # Count the frequency of each item in the user's history
-    for item in all_items:
-        item_freq[item] += 1
+    item_freq = defaultdict(int)
+    for item in user_history:
+        if item in items:
+            item_freq[item] += 1
 
     # Generate recommendations based on item similarity within the cluster
     recommendations = []
@@ -950,9 +1028,26 @@ def predict_next_basket_clustered(account_id,
             similar_items_idx = np.argsort(item_similarity[items.index(item)])[::-1][:k]
             recommendations.extend([(items[i], item_similarity[items.index(item), i] * freq) for i in similar_items_idx])
 
-    # Sort recommendations by score and return the top-k items
+    # Sort recommendations by score
     recommendations = sorted(recommendations, key=lambda x: x[1], reverse=True)
-    return [r[0] for r in recommendations[:k]]
+    final_recommendations = [r[0] for r in recommendations[:k]]
+
+    # If the number of recommendations is less than k, apply fallback strategies
+    if len(final_recommendations) < k:
+        # Fallback 1: Most common items purchased by the user that are also common in the cluster
+        cluster_common_items = Counter([item for user in train_data[train_data[cluster_col] == user_cluster][user_col].unique() 
+                                        for item in train_data[train_data[user_col] == user][sku_col].tolist()])
+        user_common_items = Counter(user_history)
+        common_items = [item for item in user_common_items if item in cluster_common_items]
+        common_items = sorted(common_items, key=lambda x: cluster_common_items[x], reverse=True)
+        final_recommendations.extend(common_items[:k - len(final_recommendations)])
+        
+        if len(final_recommendations) < k:
+            # Fallback 2: Most common items purchased only by the user
+            user_specific_items = [item for item in user_common_items if item not in common_items]
+            final_recommendations.extend(user_specific_items[:(k - len(final_recommendations))])
+
+    return final_recommendations[:k]
 
 # This are the functions used in nmodeling_mvp2_TIFUKNN.ipynb file
 
@@ -1113,8 +1208,7 @@ def generate_recommendations(user_history, item_similarity, items, item_to_clust
                 item_scores[sim_item] += 1
 
     return [item for item, score in item_scores.most_common(k)]
-
-def generate_basket_data(train_data, test_data, item_similarity, items, item_to_cluster, user_col='account_id', item_col='sku_id', k=5,threshold=0.1):
+def generate_basket_data(train_data, test_data, item_similarity, items, item_to_cluster, user_col='account_id', item_col='sku_id', k=5,threshold=0.5):
     """
     Generates predicted baskets, ground truth baskets, and user histories for all users in the test set.
 
@@ -1486,18 +1580,21 @@ def calculate_basket_statistics(ground_truth_baskets):
             'percentile_25': 0.0,
             'percentile_50': 0.0,
             'percentile_75': 0.0,
+            "max_size": 0.0,
             'basket_sizes': basket_sizes
         }
 
     average_basket_size = np.mean(basket_sizes)
     percentile_25 = np.percentile(basket_sizes, 25)
-    percentile_50 = np.percentile(basket_sizes, 50)  # This is the median
+    percentile_50 = np.percentile(basket_sizes, 50)
     percentile_75 = np.percentile(basket_sizes, 75)
+    max_size = np.max(basket_sizes)
 
     return {
         'average_size': average_basket_size,
         'percentile_25': percentile_25,
         'percentile_50': percentile_50,
         'percentile_75': percentile_75,
+        "max_size": max_size,
         'basket_sizes': basket_sizes
     }
