@@ -1,11 +1,14 @@
 import os
+import polars as pl
+pl.Config(tbl_rows=50)
+import pandas as pd
+import numpy as np
+import pyarrow
+import json
 from functools import reduce
 from collections import defaultdict, Counter
-import polars as pl
-import pandas as pd
-import pyarrow
-pl.Config(tbl_rows=50)
-import numpy as np
+from datetime import datetime
+from typing import List, Dict
 import matplotlib.pyplot as plt
 from datetime import datetime
 import scipy.stats as stats
@@ -18,6 +21,7 @@ from sklearn.metrics import classification_report, accuracy_score
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.cluster import KMeans
 from typing import Dict, Tuple, Any,List
 
 def read_csv_with_lowercase_columns(file_path: str) -> pl.DataFrame:
@@ -803,6 +807,7 @@ def fit_ordered_logistic_regression(df: pl.DataFrame, target_column: str, numeri
     # Mostrar los resultados
     return result
 
+# This are the functions used in modeling_mvp1_TIFUKNN+clustering.ipynb file
 def build_item_user_matrix_by_cluster(df: pd.DataFrame, cluster_col: str = 'cluster', sku_col: str = 'sku_id', user_col: str = 'account_id', qty_col: str = 'items_phys_cases') -> Dict[Any, Dict[str, Dict[str, int]]]:
     """
     Builds an item-user matrix for each cluster, where the rows represent SKUs (items)
@@ -897,6 +902,23 @@ def predict_next_basket_clustered(account_id,
                                   cluster_col='cluster', 
                                   sku_col='sku_id', 
                                   k=5):
+    """
+    Predict the next basket for a given account ID based on item similarity within a cluster.
+
+    Parameters:
+        account_id (int): The ID of the account to generate recommendations for.
+        cluster_item_similarity (Dict): A dictionary where each key is a cluster ID, and the value is a tuple containing:
+            - The item similarity matrix for that cluster (as a 2D numpy array).
+            - A list of items (SKUs) corresponding to the rows/columns of the similarity matrix.
+        df (pd.DataFrame): The DataFrame containing transaction data along with cluster assignments.
+        user_col (str): The name of the column representing the user IDs (default is 'account_id').
+        cluster_col (str): The name of the column representing the cluster assignment (default is 'cluster').
+        sku_col (str): The name of the column representing the SKUs (default is 'sku_id').
+        k (int): The number of recommendations to return (default is 5).
+
+    Returns:
+        list: A list of the top k recommended SKUs based on the user's history and item similarity within the cluster.
+    """
     # Check if the account_id exists in the DataFrame
     if account_id not in df[user_col].values:
         raise ValueError(f"Account ID {account_id} does not exist in the dataset.")
@@ -932,109 +954,400 @@ def predict_next_basket_clustered(account_id,
     recommendations = sorted(recommendations, key=lambda x: x[1], reverse=True)
     return [r[0] for r in recommendations[:k]]
 
-def precision_at_k(predicted, actual, k):
+# This are the functions used in nmodeling_mvp2_TIFUKNN.ipynb file
+
+def split_train_test_iso(transactions):
     """
-    Calculates the precision at k for a set of predicted items against the actual items.
+    Splits the given transactions DataFrame into training and testing sets based on biweekly periods.
 
-    Precision at k is the proportion of the top-k predicted items that are actually present
-    in the set of actual items.
-
-    Args:
-        predicted (list): A list of items (e.g., SKUs) that are predicted to be in the next basket.
-        actual (list): A list of items that are actually in the next basket.
-        k (int): The number of top predictions to consider.
+    Parameters:
+        transactions (pandas.DataFrame): The DataFrame containing the transactions data.
 
     Returns:
-        float: The precision at k, which is the ratio of correctly predicted items to the total
-               number of items in the top-k predictions. The value ranges from 0 to 1.
-
-    Example:
-        predicted = ['item1', 'item2', 'item3', 'item4']
-        actual = ['item2', 'item4', 'item6']
-        k = 3
-        precision_at_k(predicted, actual, k)
-        # Output: 0.3333  (1 out of the top 3 predicted items is correct)
-
-    Notes:
-        - The function assumes that both `predicted` and `actual` are lists of items, and that `k` is a positive integer.
-        - If k is larger than the length of the predicted list, the function will consider all predicted items.
+        tuple: A tuple containing two DataFrames. The first DataFrame is the training set, and the second DataFrame is the testing set.
     """
-    # Create sets for the predicted and actual items (limited to the top-k predicted items)
-    predicted_set = set(predicted[:k])
-    actual_set = set(actual)
-    # Calculate and return the precision at k
-    return len(predicted_set & actual_set) / len(predicted_set)
+    transactions['biweekly_period'] = transactions['invoice_date'].dt.isocalendar().week // 2
+    max_period = transactions['biweekly_period'].max()
+    train_data = transactions[transactions['biweekly_period'] < max_period]
+    test_data = transactions[transactions['biweekly_period'] == max_period]
 
-def recall_at_k(predicted, actual, k):
+    return train_data, test_data
+
+def exponential_decay(max_period, current_period, group_decay_rate, within_group_decay_rate, is_same_group, alpha):
     """
-    Calculates the recall at k for a set of predicted items against the actual items.
-
-    Recall at k is the proportion of the actual items that are successfully predicted
-    within the top-k predicted items.
+    Applies an exponential time decay based on the difference in biweekly periods.
 
     Args:
-        predicted (list): A list of items (e.g., SKUs) that are predicted to be in the next basket.
-        actual (list): A list of items that are actually in the next basket.
-        k (int): The number of top predictions to consider.
+    - max_period (int): The maximum period in the dataset.
+    - current_period (int): The current period for the transaction.
+    - group_decay_rate (float): The decay rate for interactions across different groups.
+    - within_group_decay_rate (float): The decay rate for interactions within the same group.
+    - is_same_group (bool): Whether the interaction is within the same group or across different groups.
+    - alpha (float): The general decay factor.
 
     Returns:
-        float: The recall at k, which is the ratio of correctly predicted items to the total
-               number of actual items. The value ranges from 0 to 1.
-
-    Example:
-        predicted = ['item1', 'item2', 'item3', 'item4']
-        actual = ['item2', 'item4', 'item6']
-        k = 3
-        recall_at_k(predicted, actual, k)
-        # Output: 0.3333  (1 out of the 3 actual items is found in the top 3 predictions)
-
-    Notes:
-        - The function assumes that both `predicted` and `actual` are lists of items, and that `k` is a positive integer.
-        - If k is larger than the length of the predicted list, the function will consider all predicted items.
-        - If `actual` is empty, the recall is not defined and may result in a division by zero.
+    - float: The decay weight for the current transaction.
     """
-    # Create sets for the predicted and actual items (limited to the top-k predicted items)
-    predicted_set = set(predicted[:k])
-    actual_set = set(actual)
+    time_diff = max_period - current_period
+    if is_same_group:
+        return alpha * (within_group_decay_rate ** time_diff)
+    else:
+        return alpha * (group_decay_rate ** time_diff)
     
-    # Calculate and return the recall at k
-    return len(predicted_set & actual_set) / len(actual_set)
+    return alpha ** time_diff
 
-def f1_at_k(precision: float, recall: float) -> float:
+def compute_item_similarity_iso(train_data, decay_function, user_col, item_col, period_col, quantity_col, 
+                                alpha, group_decay_rate=1, within_group_decay_rate=1, group_col=None):
     """
-    Calculates the F1 score at k, which is the harmonic mean of precision and recall.
-
-    The F1 score is a measure of a model's accuracy that considers both the precision
-    and the recall of the model to compute the balance between the two. It is particularly
-    useful when you need to balance the trade-off between precision and recall.
+    Computes the item similarity matrix using a specified time decay function.
 
     Args:
-        precision (float): The precision value at k, typically ranging from 0 to 1.
-        recall (float): The recall value at k, typically ranging from 0 to 1.
+    - train_data (DataFrame): The training data containing user purchase histories.
+    - decay_function (function): A function that applies the time decay based on the period difference.
+    - user_col (str): The column name for user IDs.
+    - item_col (str): The column name for item (SKU) IDs.
+    - period_col (str): The column name for the biweekly periods.
+    - quantity_col (str): The column name for the quantity of items purchased.
+    - alpha (float): The general time decay parameter.
+    - group_col (str): The column name for grouping items (optional).
+    - group_decay_rate (float): The decay rate for interactions across different groups. (needed when group_col is provided)
+    - within_group_decay_rate (float): The decay rate for interactions within the same group.(needed when group_col is not provided)
 
     Returns:
-        float: The F1 score at k, which ranges from 0 to 1. A higher value indicates
-               a better balance between precision and recall. If both precision and recall are 0,
-               the function returns 0 to avoid division by zero.
-
-    Example:
-        precision = 0.5
-        recall = 0.4
-        f1_at_k(precision, recall)
-        # Output: 0.4444  (calculated as 2 * (0.5 * 0.4) / (0.5 + 0.4))
-
-    Notes:
-        - The F1 score is only meaningful when both precision and recall are non-zero.
-        - If both precision and recall are zero, the function will return 0, which indicates
-          no correct predictions and/or no relevant items in the actual set.
+    - item_similarity (np.ndarray): The item similarity matrix.
+    - items (list): The list of items (SKUs).
     """
-    # Check if both precision and recall are zero to avoid division by zero
+    item_user_matrix = defaultdict(lambda: defaultdict(float))
+    users = train_data[user_col].unique()
+
+    max_period = train_data[period_col].max()
+
+    for _, row in train_data.iterrows():
+        if group_col:
+            # Determine if the interaction is within the same group or not
+            is_same_group = (train_data[group_col].max() == row[group_col])
+        else:
+            is_same_group = True  # Default to within the same group if no group column is provided
+        
+        time_decay = decay_function(max_period, row[period_col], group_decay_rate, within_group_decay_rate, is_same_group,alpha)
+        item_user_matrix[row[item_col]][row[user_col]] += row[quantity_col] * time_decay
+
+    items = list(item_user_matrix.keys())
+    item_vectors = np.array([
+        [item_user_matrix[item].get(user, 0) for user in users]
+        for item in items
+    ])
+    item_similarity = cosine_similarity(item_vectors)
+
+    return item_similarity, items
+
+def select_k(item_similarity, random_state=11):
+    """
+    Selects the optimal number of clusters (k) for the item similarity matrix using a method that considers
+    the differences between consecutive changes in SSE.
+
+    Parameters:
+    item_similarity (numpy.ndarray): The item similarity matrix.
+
+    Returns:
+    int: The optimal number of clusters (k).
+    list: SSE values for each k.
+    """
+    sse = []
+    for k in range(2, 11):
+        kmeans = KMeans(n_clusters=k, random_state=random_state)
+        kmeans.fit(item_similarity)
+        sse.append(kmeans.inertia_)
+    
+    # Calculate the differences between consecutive SSE values
+    sse_diff = np.diff(sse)
+    
+    # Calculate the differences between consecutive changes in SSE
+    sse_diff_changes = np.diff(sse_diff)
+    
+    # Find the k corresponding to the minimum change between consecutive changes
+    optimal_k = np.argmin(sse_diff_changes) + 2  # +2 because k starts from 2 and we take the change of the change
+    
+    return optimal_k, sse,sse_diff_changes
+
+def find_most_similar_items(item_similarity, items, k, random_state=11):
+    """
+    Finds the most similar items based on their similarity matrix and clusters them into k groups.
+
+    Parameters:
+    item_similarity (numpy.ndarray): The item similarity matrix.
+    items (list): The list of items.
+    k (int): The number of clusters.
+
+    Returns:
+    dict: A dictionary mapping each item to its cluster.
+    """
+    kmeans = KMeans(n_clusters=k, random_state=45)
+    kmeans.fit(item_similarity)
+    clusters = kmeans.predict(item_similarity)
+
+    item_to_cluster = {item: cluster for item, cluster in zip(items, clusters)}
+    return item_to_cluster
+
+def generate_recommendations(user_history, item_similarity, items, item_to_cluster, k,threshold):
+    """
+    Generates recommendations based on one user history and item similarity.
+
+    Parameters:
+    user_history (list): A list of items the user has previously interacted with.
+    item_similarity (numpy.ndarray): The item similarity matrix.
+    items (list): The list of items.
+    item_to_cluster (dict): A dictionary mapping each item to its cluster.
+    k (int): The number of recommendations to return.
+    threshold (int): The threshold for the similarity of items
+
+    Returns:
+    list: A list of the top k recommended items based on the user's history and item similarity.
+    """
+    item_scores = Counter()
+    for item in user_history:
+        if item in item_to_cluster:
+            cluster = item_to_cluster[item]
+            similar_items = [items[i] for i in np.where(item_similarity[cluster] > threshold)[0]]
+            for sim_item in similar_items:
+                item_scores[sim_item] += 1
+
+    return [item for item, score in item_scores.most_common(k)]
+
+def generate_basket_data(train_data, test_data, item_similarity, items, item_to_cluster, user_col='account_id', item_col='sku_id', k=5,threshold=0.1):
+    """
+    Generates predicted baskets, ground truth baskets, and user histories for all users in the test set.
+
+    Args:
+    - train_data (DataFrame): The training data containing user purchase histories.
+    - test_data (DataFrame): The test data containing the ground truth baskets.
+    - item_similarity (np.ndarray): The item similarity matrix.
+    - items (list): The list of all items.
+    - item_to_cluster (dict): Mapping of items to their clusters.
+    - user_col (str): The name of the user column in the dataset.
+    - item_col (str): The name of the item (SKU) column in the dataset.
+    - k (int): The number of top items to recommend.
+    - threshold (int): The threshold for the similarity of items
+
+    Returns:
+    - predicted_baskets (dict): Dictionary with users as keys and their predicted baskets as values.
+    - ground_truth_baskets (dict): Dictionary with users as keys and their ground truth baskets as values.
+    - user_histories (dict): Dictionary with users as keys and their purchase histories as values.
+    """
+    predicted_baskets = {}
+    ground_truth_baskets = {}
+    user_histories = {}
+
+    for account_id in test_data[user_col].unique():
+        user_history = train_data[train_data[user_col] == account_id][item_col].tolist()
+        ground_truth = test_data[test_data[user_col] == account_id][item_col].tolist()
+        predicted_basket = generate_recommendations(user_history, item_similarity, items, item_to_cluster, k,threshold)
+
+        predicted_baskets[account_id] = predicted_basket
+        ground_truth_baskets[account_id] = ground_truth
+        user_histories[account_id] = user_history
+
+    return predicted_baskets, ground_truth_baskets, user_histories
+
+# This are the metrics used to evaluate our experiments
+# Conventional Metrics
+def precision_at_k(predicted_basket, ground_truth_basket, k):
+    """
+    Calculate Precision@K for the given predicted basket and ground truth basket.
+
+    Precision@K measures the fraction of relevant items among the top K recommendations.
+
+    Args:
+    - predicted_basket (list): List of items predicted by the recommendation model.
+    - ground_truth_basket (list): List of items actually purchased/consumed by the user.
+    - k (int): The number of top items to consider in the predicted basket.
+
+    Returns:
+    - float: Precision@K score.
+    """
+    predicted_items = set(predicted_basket[:k])
+    relevant_items = set(ground_truth_basket)
+    true_positives = len(predicted_items & relevant_items)
+    return true_positives / k if k > 0 else 0.0
+
+def f1_at_k(predicted_basket, ground_truth_basket, k,precision_at_k,recall_at_k):
+    """
+    Calculate F1@K for the given predicted basket and ground truth basket.
+
+    F1@K is the harmonic mean of Precision@K and Recall@K.
+
+    Args:
+    - predicted_basket (list): List of items predicted by the recommendation model.
+    - ground_truth_basket (list): List of items actually purchased/consumed by the user.
+    - k (int): The number of top items to consider in the predicted basket.
+
+    Returns:
+    - float: F1@K score.
+    """
+    precision = precision_at_k(predicted_basket, ground_truth_basket, k)
+    recall = recall_at_k(predicted_basket, ground_truth_basket, k)
     if precision + recall == 0:
-        return 0
-    
-    # Calculate and return the F1 score at k
+        return 0.0
     return 2 * (precision * recall) / (precision + recall)
 
+def recall_at_k(predicted_basket, ground_truth_basket, k):
+    """
+    Calculate Recall@K for the given predicted basket and ground truth basket.
+
+    Recall@K measures the fraction of relevant items in the ground truth that are present in the top K recommendations.
+
+    Args:
+    - predicted_basket (list): List of items predicted by the recommendation model.
+    - ground_truth_basket (list): List of items actually purchased/consumed by the user.
+    - k (int): The number of top items to consider in the predicted basket.
+
+    Returns:
+    - float: Recall@K score.
+    """
+    relevant_items = set(ground_truth_basket)
+    predicted_items = set(predicted_basket[:k])
+    return len(relevant_items & predicted_items) / len(relevant_items) if relevant_items else 0.0
+
+def ndcg_at_k(predicted_basket, ground_truth_basket, k):
+    """
+    Calculate NDCG@K for the given predicted basket and ground truth basket.
+
+    NDCG@K (Normalized Discounted Cumulative Gain) measures the ranking quality of the top K recommendations,
+    taking into account the order of items.
+
+    Args:
+    - predicted_basket (list): List of items predicted by the recommendation model.
+    - ground_truth_basket (list): List of items actually purchased/consumed by the user.
+    - k (int): The number of top items to consider in the predicted basket.
+
+    Returns:
+    - float: NDCG@K score.
+    """
+    dcg = sum([1 / np.log2(i + 2) if predicted_basket[i] in ground_truth_basket else 0 for i in range(min(k, len(predicted_basket)))])
+    idcg = sum([1 / np.log2(i + 2) for i in range(min(k, len(ground_truth_basket)))])
+    return dcg / idcg if idcg > 0 else 0.0
+
+def phr_at_k(predicted_basket, ground_truth_basket, k):
+    """
+    Calculate PHR@K (Personalized Hit Ratio) for the given predicted basket and ground truth basket.
+
+    PHR@K measures the proportion of users for whom at least one item in the top K recommendations is in the ground truth.
+
+    Args:
+    - predicted_basket (list): List of items predicted by the recommendation model.
+    - ground_truth_basket (list): List of items actually purchased/consumed by the user.
+    - k (int): The number of top items to consider in the predicted basket.
+
+    Returns:
+    - float: PHR@K score (1.0 if at least one item matches, otherwise 0.0).
+    """
+    return 1.0 if set(predicted_basket[:k]) & set(ground_truth_basket) else 0.0
+
+
+# Novel Metrics for Repetition and Exploration
+def repetition_ratio(predicted_basket, user_history):
+    """
+    Calculate the Repetition Ratio (RepR) for the given predicted basket and user history.
+
+    RepR measures the proportion of items in the recommended basket that have appeared in the user's history.
+
+    Args:
+    - predicted_basket (list): List of items predicted by the recommendation model.
+    - user_history (list): List of items the user has previously interacted with.
+
+    Returns:
+    - float: Repetition Ratio (RepR) score.
+    """
+    repeated_items = [item for item in predicted_basket if item in user_history]
+    return len(repeated_items) / len(predicted_basket) if predicted_basket else 0.0
+
+def exploration_ratio(predicted_basket, user_history):
+    """
+    Calculate the Exploration Ratio (ExplR) for the given predicted basket and user history.
+
+    ExplR measures the proportion of items in the recommended basket that are new to the user.
+
+    Args:
+    - predicted_basket (list): List of items predicted by the recommendation model.
+    - user_history (list): List of items the user has previously interacted with.
+
+    Returns:
+    - float: Exploration Ratio (ExplR) score.
+    """
+    new_items = [item for item in predicted_basket if item not in user_history]
+    return len(new_items) / len(predicted_basket) if predicted_basket else 0.0
+
+def recall_rep(predicted_basket, ground_truth_basket, user_history):
+    """
+    Calculate Recallrep for the given predicted basket, ground truth basket, and user history.
+
+    Recallrep measures the recall for repeat items, which are items that the user has interacted with before.
+
+    Args:
+    - predicted_basket (list): List of items predicted by the recommendation model.
+    - ground_truth_basket (list): List of items actually purchased/consumed by the user.
+    - user_history (list): List of items the user has previously interacted with.
+
+    Returns:
+    - float: Recallrep score.
+    """
+    repeated_ground_truth = [item for item in ground_truth_basket if item in user_history]
+    repeated_predictions = [item for item in predicted_basket if item in repeated_ground_truth]
+    return len(repeated_predictions) / len(repeated_ground_truth) if repeated_ground_truth else 0.0
+
+def recall_expl(predicted_basket, ground_truth_basket, user_history):
+    """
+    Calculate Recallexpl for the given predicted basket, ground truth basket, and user history.
+
+    Recallexpl measures the recall for explore items, which are items that are new to the user.
+
+    Args:
+    - predicted_basket (list): List of items predicted by the recommendation model.
+    - ground_truth_basket (list): List of items actually purchased/consumed by the user.
+    - user_history (list): List of items the user has previously interacted with.
+
+    Returns:
+    - float: Recallexpl score.
+    """
+    new_ground_truth = [item for item in ground_truth_basket if item not in user_history]
+    new_predictions = [item for item in predicted_basket if item in new_ground_truth]
+    return len(new_predictions) / len(new_ground_truth) if new_ground_truth else 0.0
+
+def phr_rep(predicted_basket, ground_truth_basket, user_history):
+    """
+    Calculate PHRrep (Personalized Hit Ratio for Repeat items) for the given predicted basket, ground truth basket, and user history.
+
+    PHRrep measures the personalized hit ratio for repeat items, which are items that the user has interacted with before.
+
+    Args:
+    - predicted_basket (list): List of items predicted by the recommendation model.
+    - ground_truth_basket (list): List of items actually purchased/consumed by the user.
+    - user_history (list): List of items the user has previously interacted with.
+
+    Returns:
+    - float: PHRrep score (1.0 if at least one repeat item matches, otherwise 0.0).
+    """
+    repeated_ground_truth = [item for item in ground_truth_basket if item in user_history]
+    return 1.0 if set(predicted_basket) & set(repeated_ground_truth) else 0.0
+
+def phr_expl(predicted_basket, ground_truth_basket, user_history):
+    """
+    Calculate PHRexpl (Personalized Hit Ratio for Explore items) for the given predicted basket, ground truth basket, and user history.
+
+    PHRexpl measures the personalized hit ratio for explore items, which are items that are new to the user.
+
+    Args:
+    - predicted_basket (list): List of items predicted by the recommendation model.
+    - ground_truth_basket (list): List of items actually purchased/consumed by the user.
+    - user_history (list): List of items the user has previously interacted with.
+
+    Returns:
+    - float: PHRexpl score (1.0 if at least one explore item matches, otherwise 0.0).
+    """
+    new_ground_truth = [item for item in ground_truth_basket if item not in user_history]
+    return 1.0 if set(predicted_basket) & set(new_ground_truth) else 0.0
+
+# metric created by me
 def precision_at_k_over_n(predicted: list, actual: list, n: int, k: int) -> float:
     """
     Calculates a modified precision at k, where the number of correctly predicted items
@@ -1075,3 +1388,116 @@ def precision_at_k_over_n(predicted: list, actual: list, n: int, k: int) -> floa
     result = len(predicted_set & actual_set) / n
     
     return result
+
+def evaluate_model_metrics(predicted_baskets, ground_truth_baskets, user_histories, k=5, n=3):
+    """
+    Evaluates various performance metrics for the model's predictions.
+
+    Args:
+    - predicted_baskets (dict): A dictionary where keys are user IDs and values are lists of predicted items.
+    - ground_truth_baskets (dict): A dictionary where keys are user IDs and values are lists of actual items.
+    - user_histories (dict): A dictionary where keys are user IDs and values are lists of past items the user interacted with.
+    - k (int): The number of top items to consider in the predictions.
+    - n (int): The divisor used in the modified precision at k calculation.
+
+    Returns:
+    - dict: A dictionary containing the average scores for each metric.
+    """
+    # Initialize lists to store metric results
+    precision_results = []
+    recall_results = []
+    f1_results = []
+    ndcg_results = []
+    phr_results = []
+    repetition_results = []
+    exploration_results = []
+    recall_rep_results = []
+    recall_expl_results = []
+    phr_rep_results = []
+    phr_expl_results = []
+    precision_at_k_over_n_results = []
+
+    # Loop through each user and calculate metrics
+    for user, predicted in predicted_baskets.items():
+        actual = ground_truth_baskets.get(user, [])
+        history = user_histories.get(user, [])
+
+        precision = precision_at_k(predicted, actual, k)
+        recall = recall_at_k(predicted, actual, k)
+        f1 = f1_at_k(predicted, actual, k, precision_at_k, recall_at_k)
+        ndcg = ndcg_at_k(predicted, actual, k)
+        phr = phr_at_k(predicted, actual, k)
+        repetition = repetition_ratio(predicted, history)
+        exploration = exploration_ratio(predicted, history)
+        recall_rep_score = recall_rep(predicted, actual, history)
+        recall_expl_score = recall_expl(predicted, actual, history)
+        phr_rep_score = phr_rep(predicted, actual, history)
+        phr_expl_score = phr_expl(predicted, actual, history)
+        precision_over_n_score = precision_at_k_over_n(predicted, actual, n=n, k=k)
+
+        # Store results
+        precision_results.append(precision)
+        recall_results.append(recall)
+        f1_results.append(f1)
+        ndcg_results.append(ndcg)
+        phr_results.append(phr)
+        repetition_results.append(repetition)
+        exploration_results.append(exploration)
+        recall_rep_results.append(recall_rep_score)
+        recall_expl_results.append(recall_expl_score)
+        phr_rep_results.append(phr_rep_score)
+        phr_expl_results.append(phr_expl_score)
+        precision_at_k_over_n_results.append(precision_over_n_score)
+
+    # Calculate average metrics across all users
+    results = {
+        'Avg Precision@k': np.mean(precision_results),
+        'Avg Recall@k': np.mean(recall_results),
+        'Avg F1@k': np.mean(f1_results),
+        'Avg NDCG@k': np.mean(ndcg_results),
+        'Avg PHR@k': np.mean(phr_results),
+        'Avg Repetition Ratio': np.mean(repetition_results),
+        'Avg Exploration Ratio': np.mean(exploration_results),
+        'Avg Recallrep': np.mean(recall_rep_results),
+        'Avg Recallexpl': np.mean(recall_expl_results),
+        'Avg PHRrep': np.mean(phr_rep_results),
+        'Avg PHRexpl': np.mean(phr_expl_results),
+        'Avg Precision@k over n': np.mean(precision_at_k_over_n_results)
+    }
+
+    return results
+
+def calculate_basket_statistics(ground_truth_baskets):
+    """
+    Calculates the average size, 25th, 50th (median), and 75th percentiles of the baskets in the ground truth data.
+    Also returns the list of basket sizes.
+
+    Args:
+    - ground_truth_baskets (dict): A dictionary where keys are user IDs and values are lists of actual items.
+
+    Returns:
+    - dict: A dictionary containing the average size, specified percentiles, and the list of basket sizes.
+    """
+    basket_sizes = [len(basket) for basket in ground_truth_baskets.values()]
+
+    if len(basket_sizes) == 0:
+        return {
+            'average_size': 0.0,
+            'percentile_25': 0.0,
+            'percentile_50': 0.0,
+            'percentile_75': 0.0,
+            'basket_sizes': basket_sizes
+        }
+
+    average_basket_size = np.mean(basket_sizes)
+    percentile_25 = np.percentile(basket_sizes, 25)
+    percentile_50 = np.percentile(basket_sizes, 50)  # This is the median
+    percentile_75 = np.percentile(basket_sizes, 75)
+
+    return {
+        'average_size': average_basket_size,
+        'percentile_25': percentile_25,
+        'percentile_50': percentile_50,
+        'percentile_75': percentile_75,
+        'basket_sizes': basket_sizes
+    }
