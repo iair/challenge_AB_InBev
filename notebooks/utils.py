@@ -1549,13 +1549,13 @@ def evaluate_model_metrics(predicted_baskets, ground_truth_baskets, user_histori
         'Avg Recall@k': np.mean(recall_results),
         'Avg F1@k': np.mean(f1_results),
         'Avg NDCG@k': np.mean(ndcg_results),
-        'Avg PHR@k': np.mean(phr_results),
+        'PHR@k': np.mean(phr_results),
         'Avg Repetition Ratio': np.mean(repetition_results),
         'Avg Exploration Ratio': np.mean(exploration_results),
         'Avg Recallrep': np.mean(recall_rep_results),
         'Avg Recallexpl': np.mean(recall_expl_results),
-        'Avg PHRrep': np.mean(phr_rep_results),
-        'Avg PHRexpl': np.mean(phr_expl_results),
+        'PHRrep': np.mean(phr_rep_results),
+        'PHRexpl': np.mean(phr_expl_results),
         'Avg Precision@k over n': np.mean(precision_at_k_over_n_results)
     }
 
