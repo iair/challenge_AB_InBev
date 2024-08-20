@@ -3,7 +3,7 @@
 Este documento se ordena de la siguiente forma:
 
 1. Introducción
-2. Respuestas a las pretuntas planteadas en el challenge
+2. Respuestas a las preguntas planteadas en el challenge
 3. Descripción del proceso realizado en el preprocesamiennto y EDA (preprocesssing_EDA.ipynb)
 4. Framework de evaluación utilizado en los modelos
 5. Explicación del algoritmo TIFUKNN
@@ -147,9 +147,11 @@ En los dataset de atributos y transacciones se ejecutan los siguientes análisis
             * Se ejecutan algunas transformaciones de formato de fechas, números y textos
             * Se generan agregaciones para disponer de datasets que simplifiquen el EDA
 
-### EDA -- Se contestan estas preguntas para tener una radiografía clara de mis clientes en base a su comportamiento de consumo y atributos entregados
+### EDA -- En el EDA se plantean y contestan estas preguntas para tener una radiografía clara de mis clientes en base a su comportamiento de consumo y atributos entregados
 
-El objetivo de este análisis es entender la magnitud del problema, las características del comportamiento transaccional y de los atributos asignados a los clientes. Uno de los aspectos más importantes en este análisis es entender la factibilidad de ejecutar algoritmos de clusterización para segmentar a los usuarios, así como también comprender si los primeros algoritmos que debemos usar en estas POC con frecuentistas, de filtro colaborativo , secuenciales , factorización de matrices, aprendizaje profundo y/o híbrido
+El objetivo de este análisis es entender la magnitud del problema, las características del comportamiento transaccional y de los atributos asignados a los clientes. Uno de los aspectos más importantes en este análisis es entender la factibilidad de ejecutar algoritmos de clusterización para segmentar a los usuarios, así como también comprender si los primeros algoritmos que debemos usar en estas POC con frecuentistas, de filtro colaborativo , secuenciales , factorización de matrices, aprendizaje profundo y/o híbrido.
+
+Todas las respuestas se pueden encontrar en el notebook *preprocessing_EDA.ipynb*
 
 **Sobre los clientes**
 
@@ -228,15 +230,39 @@ F1 de K = 2 * (Precision de K promedio * Recall de K promedio)/(Precision de K p
 
 * Repetition Ratio (RepR)
 
+- Definición: La Repetition Ratio mide la proporción de elementos en la canasta recomendada que han aparecido en el historial del usuario.
+- Cómo funciona: Cuenta cuántos de los elementos recomendados son elementos con los que el usuario ya ha interactuado en el pasado.
+- Interpretación: Una mayor repetición indica que las recomendaciones son más conservadoras, favoreciendo elementos familiares.
+
 * Exploration Ratio (ExplR)
+
+- Definición: La Exploration Ratio mide la proporción de elementos en la canasta recomendada que son nuevos para el usuario.
+- Cómo funciona: Verifica cuántos de los elementos recomendados son elementos con los que el usuario no ha interactuado antes.
+- Interpretación: Una mayor exploración indica que las recomendaciones son más diversas y exploratorias, sugiriendo nuevos elementos.
 
 * Recallrep
 
+- Definición: Recallrep mide el recall para los elementos repetidos, que son elementos con los que el usuario ya ha interactuado antes.
+- Cómo funciona: Calcula qué tan bien el modelo recupera elementos repetidos del historial del usuario que están presentes en la canasta real.
+- Interpretación: Un mayor Recallrep indica que el modelo es efectivo al recomendar elementos en los que el usuario ha mostrado interés previamente.
+
 * Recallexp
+
+- Definición: Recallexpl mide el recall para los elementos exploratorios, que son nuevos elementos con los que el usuario no ha interactuado antes.
+- Cómo funciona: Evalúa qué tan bien el modelo sugiere nuevos elementos que terminan en la próxima canasta del usuario.
+- Interpretación: Un mayor Recallexpl indica que el modelo es bueno al recomendar elementos nuevos y relevantes.
 
 * PHRrep
 
+- Definición: PHRrep (Personalized Hit Ratio for Repeat items) mide la proporción de aciertos para los elementos repetidos, enfocándose en los elementos con los que el usuario ya ha interactuado.
+- Cómo funciona: Verifica si al menos un elemento repetido del historial del usuario está en los K principales elementos recomendados.
+- Interpretación: Un mayor PHRrep sugiere que las recomendaciones son efectivas al incluir elementos familiares, previamente comprados.
+
 * PHRexpl
+
+- Definición: PHRexpl (Personalized Hit Ratio for Explore items) mide la proporción de aciertos para los elementos exploratorios, enfocándose en los elementos con los que el usuario no ha interactuado antes.
+- Cómo funciona: Verifica si al menos un elemento nuevo está incluido en los K principales elementos recomendados.
+- Interpretación: Un mayor PHRexpl indica que las recomendaciones son efectivas al introducir nuevos elementos relevantes al usuario.
 
 **Métricas especiales propuestas por mi**
 
