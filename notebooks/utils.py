@@ -31,8 +31,7 @@ def read_csv_with_lowercase_columns(file_path: str) -> pl.DataFrame:
     Parameters:
     file_path (str): La ruta del archivo CSV.
 
-    Returns:
-    pl.DataFrame: Un DataFrame de polars con nombres de columnas en minúsculas.
+    Returns: pl.DataFrame: Un DataFrame de polars con nombres de columnas en minúsculas.
     """
     # Leer el archivo CSV
     df = pl.read_csv(file_path)
@@ -49,8 +48,7 @@ def transform_to_date(df: pl.DataFrame, columns: list) -> pl.DataFrame:
     df (pl.DataFrame): The original Polars DataFrame.
     columns (list): List of column names to transform into date format.
     
-    Returns:
-    pl.DataFrame: The DataFrame with specified columns transformed to dates.
+    Returns: pl.DataFrame: The DataFrame with specified columns transformed to dates.
     """
     transformations = []
     for col in columns:
@@ -66,8 +64,7 @@ def replace_sd_with_null(df: pl.DataFrame, columns: list) -> pl.DataFrame:
     df (pl.DataFrame): El DataFrame de polars.
     columns (list): Una lista de nombres de columnas en las que se realizará la transformación.
 
-    Returns:
-    pl.DataFrame: Un nuevo DataFrame con los valores "S/D" reemplazados por nulos en las columnas especificadas.
+    Returns: pl.DataFrame: Un nuevo DataFrame con los valores "S/D" reemplazados por nulos en las columnas especificadas.
     """
     # Reemplazar "S/D" con None en las columnas especificadas
     df = df.with_columns([
@@ -82,8 +79,7 @@ def check_null_values(df: pl.DataFrame) -> pl.DataFrame:
     Parameters:
     df (pl.DataFrame): El DataFrame de polars.
 
-    Returns:
-    pl.DataFrame: Un DataFrame con tres columnas: el nombre de la columna original, el conteo de valores nulos y el porcentaje de valores nulos en esa columna.
+    Returns:pl.DataFrame: Un DataFrame con tres columnas: el nombre de la columna original, el conteo de valores nulos y el porcentaje de valores nulos en esa columna.
     """
     # Calcular la cantidad de nulos por columna
     null_counts = df.select([
@@ -113,8 +109,7 @@ def fill_missing_values(df: pl.DataFrame, target_column: str, numeric_features: 
     numeric_features (list): Listado de nombres de variables numéricas.
     categorical_features (list): Listado de nombres de variables categóricas.
     
-    Returns:
-    tuple: Un DataFrame actualizado con los valores nulos rellenados, el informe de clasificación, y la precisión del modelo.
+    Returns: tuple: Un DataFrame actualizado con los valores nulos rellenados, el informe de clasificación, y la precisión del modelo.
     """
     # Convertir el DataFrame de Polars a Pandas
     df_pd = df.to_pandas()
@@ -204,8 +199,7 @@ def filter_rows_without_nulls(df: pl.DataFrame) -> pl.DataFrame:
     Parameters:
     df (pl.DataFrame): El DataFrame de polars a ser filtrado.
 
-    Returns:
-    pl.DataFrame: Un nuevo DataFrame que contiene solo las filas sin ningún valor nulo.
+    Returns: pl.DataFrame: Un nuevo DataFrame que contiene solo las filas sin ningún valor nulo.
     """
     # Crear una máscara booleana que verifica si no hay ningún valor nulo en cada fila
     not_null_mask = df.select([
@@ -228,8 +222,7 @@ def count_distinct_in_bins(df: pl.DataFrame, volume_column: str, column: str, bi
     pocr_column (str): El nombre de la columna cuyos valores distintos se contarán (por ejemplo, 'pocr').
     bin_size (int): El tamaño de cada bloque o rango (por defecto 500).
 
-    Returns:
-    pl.DataFrame: Un DataFrame con los rangos y la cantidad de valores distintos de pocr en cada rango.
+    Returns: pl.DataFrame: Un DataFrame con los rangos y la cantidad de valores distintos de pocr en cada rango.
     """
     # Crear una nueva columna que agrupa los valores en bloques de 'bin_size'
     df = df.with_columns([
@@ -251,8 +244,7 @@ def calculate_statistics(df: pl.DataFrame, numeric_cols: list) -> pl.DataFrame:
     df (pl.DataFrame): El DataFrame de Polars con los datos.
     numeric_cols (list): Lista de nombres de las columnas numéricas a calcular.
 
-    Returns:
-    pl.DataFrame: Un nuevo DataFrame donde las filas son las variables y las columnas son las métricas calculadas.
+    Returns: pl.DataFrame: Un nuevo DataFrame donde las filas son las variables y las columnas son las métricas calculadas.
     """
     # Crear una lista para almacenar las métricas
     metrics = []
@@ -302,8 +294,7 @@ def group_and_describe_with_percentiles(df: pl.DataFrame, group_by_col: str, num
     numeric_cols (list): Una lista de nombres de columnas numéricas para calcular las medidas de tendencia central.
     percentiles (list): Una lista de percentiles a calcular (por defecto [0.25, 0.5, 0.75]).
 
-    Returns:
-    pl.DataFrame: Un nuevo DataFrame con las medidas de tendencia central, percentiles y conteo para cada grupo.
+    Returns: pl.DataFrame: Un nuevo DataFrame con las medidas de tendencia central, percentiles y conteo para cada grupo.
     """
     # Agrupar por la columna especificada y calcular las estadísticas descriptivas para las columnas numéricas
     result = df.group_by(group_by_col).agg(
@@ -332,8 +323,7 @@ def group_aggregate_sum(df: pl.DataFrame, group_by_cols: list, list_col: str, su
     list_col (str): The column whose values should be aggregated into a list.
     sum_cols (list): List of numeric column names on which to perform a sum.
     
-    Returns:
-    pl.DataFrame: The resulting grouped and aggregated Polars DataFrame.
+    Returns: pl.DataFrame: The resulting grouped and aggregated Polars DataFrame.
     """
     # Group by the specified columns
     grouped_df = df.groupby(group_by_cols).agg([
@@ -367,9 +357,8 @@ def count_distinct_grouped_by(df: pl.DataFrame, y_column: str, x_columns: list, 
     x_columns (list): Una lista de nombres de columnas X por las que se agrupará.
     z_columns (list, optional): Una lista de nombres de columnas Z por las que se ordenará de forma descendente.
 
-    Returns:
-    pl.DataFrame: Un nuevo DataFrame con los resultados de la cantidad de valores distintos de Y agrupados por X,
-                  ordenados por las columnas Z y con el porcentaje calculado.
+    Returns: pl.DataFrame: Un nuevo DataFrame con los resultados de la cantidad de valores distintos de Y agrupados por X, 
+    ordenados por las columnas Z y con el porcentaje calculado.
     """
     # Agrupar por las columnas X y contar los valores distintos de Y
     result = df.group_by(x_columns).agg([
@@ -411,8 +400,7 @@ def chi2_test(df: pl.DataFrame, col1: str, col2: str, confidence_level: float = 
     col2 (str): El nombre de la segunda columna categórica.
     confidence_level (float): El grado de confianza para la prueba (por defecto 0.95).
 
-    Returns:
-    tuple: Un tuple con el p-valor y la conclusión de la prueba.
+    Returns: tuple: Un tuple con el p-valor y la conclusión de la prueba.
     """
     # Convertir las columnas seleccionadas a pandas
     df_pandas = df.select([col1, col2]).to_pandas()
@@ -443,8 +431,7 @@ def chi2_matrix(chi2_test_func, df: pl.DataFrame, categorical_columns: list, con
     categorical_columns (list): Una lista con los nombres de las variables categóricas.
     confidence_level (float): El grado de confianza para la prueba (por defecto 0.95).
 
-    Returns:
-    np.ndarray: Una matriz con valores Verdadero/Falso indicando si se rechaza la hipótesis nula para cada combinación.
+    Returns: np.ndarray: Una matriz con valores Verdadero/Falso indicando si se rechaza la hipótesis nula para cada combinación.
     """
     n = len(categorical_columns)
     results_matrix = np.zeros((n, n), dtype=bool)
@@ -470,8 +457,7 @@ def kruskal_wallis_test_multiple(df, numeric_cols, categorical_col, alpha=0.05):
     categorical_col (str): El nombre de la columna categórica.
     alpha (float): Nivel de significancia para rechazar la hipótesis nula (por defecto es 0.05).
 
-    Returns:
-    dict: Un diccionario con los resultados del test para cada columna numérica.
+    Returns: dict: Un diccionario con los resultados del test para cada columna numérica.
     """
     results = {}
     
@@ -543,6 +529,19 @@ def plot_boxplots(df: pl.DataFrame, columns: list):
     plt.tight_layout()
     plt.show()
 def plot_weekly_sum(df, columns,group_by_period="weeks",xlabel_name="Weeks", ylabel_name="Sum of total values", title_name="Sum of Total Values over Time"):
+    """
+    This function generates a line plot to display the sum of total values for each column over time.
+    
+    Parameters:
+    df (pl.DataFrame): The input DataFrame.
+    columns (list): A list of column names for which the sum of total values will be calculated.
+    group_by_period (str): The period to group the data by (default: "weeks").
+    xlabel_name (str): The label for the x-axis (default: "Weeks").
+    ylabel_name (str): The label for the y-axis (default: "Sum of total values").
+    title_name (str): The title of the plot (default: "Sum of Total Values over Time").
+    
+    Returns: None
+    """
     # Group by weeks and calculate sum for each column
     weekly_sum = df.group_by(group_by_period).agg(
         [pl.col(col).sum().alias(f"total_{col}") for col in columns]
@@ -597,8 +596,10 @@ def process_baskets_weekly(
     mean_columns: list[str]
 ) -> pl.DataFrame:
     """
-    Process the baskets DataFrame to create all possible combinations of weeks and account_id,
-    perform aggregation, and join the results.
+    This code processes a Polars DataFrame `baskets` to create all possible combinations of weeks and account IDs, performs aggregation on the data, and joins the results. 
+    The aggregation includes counting a specified column, calculating unique values in another column, and calculating the mean of one or more columns. 
+    The resulting DataFrame includes all possible combinations of weeks and account IDs, with the aggregated values filled in where available 
+    and filled with zeros otherwise,sorted by weeks and account IDs.
 
     Args:
     baskets (pl.DataFrame): Input DataFrame
@@ -647,8 +648,24 @@ def process_baskets_biweekly(
     mean_columns: list[str]
 ) -> pl.DataFrame:
     """
-    Process the baskets DataFrame to create all possible combinations of biweekly periods and account_id,
-    perform aggregation, and join the results.
+    This code processes a DataFrame of baskets to create all possible combinations of biweekly periods and account_id, performs aggregation, and joins the results.
+    Here's a step-by-step breakdown:
+
+    1. Extracts the week from the invoice_date column and creates a new column called "weeks".
+    2. Creates a new column called "biweekly" by mapping each week to a biweekly period (e.g., week 1-2 becomes biweekly 1, week 3-4 becomes biweekly 2, etc.).
+    3. Creates all possible combinations of biweekly periods and account_id.
+    4. Performs aggregation on the DataFrame, including:
+        * Counting the values in the specified count_column.
+        * Calculating the unique values in the specified unique_column.
+        * Calculating the mean values in the specified mean_columns.
+    5. Joins the aggregated results with all possible combinations of biweekly periods and account_id.
+    6. Returns the processed DataFrame, sorted by biweekly period and account_id.
+
+    The function takes four parameters:
+    * `baskets`: The input DataFrame.
+    * `count_column`: The column to count.
+    * `unique_column`: The column to calculate unique values.
+    * `mean_columns`: The columns to calculate mean values.
 
     Args:
     baskets (pl.DataFrame): Input DataFrame
@@ -656,8 +673,7 @@ def process_baskets_biweekly(
     unique_column (str): Column to calculate unique values
     mean_columns (list[str]): Columns to calculate mean
 
-    Returns:
-    pl.DataFrame: Processed DataFrame
+    Returns: pl.DataFrame: Processed DataFrame
     """
     # Extract the week from the invoice_date column
     baskets = baskets.with_columns([
@@ -708,6 +724,28 @@ def process_baskets_monthly(
     unique_column: str, 
     mean_columns: list[str]
 ) -> pl.DataFrame:
+    """
+    Process a DataFrame of baskets to create all possible combinations of months and account_id, performs aggregation on the data, and joins the results.
+    
+    The function does the following:
+
+    1. Extracts the month from the invoice_date column in the DataFrame.
+    2. Creates all possible combinations of months and account_id.
+    3. Performs an aggregation on the DataFrame, calculating the count of the count_column, the unique values of the unique_column, and the mean of the mean_columns.
+    4. Joins the aggregation results with all possible combinations.
+    5. Sorts the result by month and account_id.
+
+    The function returns a DataFrame with the aggregated results, sorted by month and account_id, and filled with zeros where null values are found.
+
+    Parameters:
+    baskets (pl.DataFrame): The original Polars DataFrame.
+    count_column (str): The column to count.
+    unique_column (str): The column to calculate unique values.
+    mean_columns (list[str]): The columns to calculate mean values.
+
+    Returns:
+    pl.DataFrame: The resulting grouped and aggregated Polars DataFrame.
+    """
     # Extract the month from the invoice_date column
     baskets = baskets.with_columns([
         pl.col("invoice_date").dt.strftime("%Y-%m").alias("month")
@@ -741,6 +779,27 @@ def process_baskets_monthly(
 
     return monthly_result
 def find_repetitive_purchasers(df, user_id_col, sku_id_col, date_col):
+    """
+    Is designed to find users who have purchased a certain SKU (Stock Keeping Unit) multiple times. 
+    It takes a Polars DataFrame df as input and uses the columns user_id_col, sku_id_col, and date_col to identify the users, SKUs, and dates, respectively.
+    
+    The function find_repetitive_purchasers performs the following steps:
+
+    - Selects the specified columns from the DataFrame.
+    - Groups by user ID and SKU ID.
+    - Aggregates the count of purchases for each user and SKU.
+    - Filters out users who have made 12 or more purchases.
+    -Returns a Polars DataFrame containing user IDs, SKU IDs, and total purchases.
+    
+    Parameters:
+        df (pl.DataFrame): The DataFrame to find repetitive purchasers from.
+        user_id_col (str): The column name for user IDs.
+        sku_id_col (str): The column name for SKU IDs.
+        date_col (str): The column name for dates.
+
+    Returns:
+        pl.DataFrame: A Polars DataFrame containing user IDs, SKU IDs, and total purchases, filtered for users with 12 or more total purchases.
+    """
     return df.select([
         user_id_col, 
         sku_id_col, 
@@ -1435,25 +1494,22 @@ def precision_at_k(predicted_basket, ground_truth_basket, k):
     true_positives = len(predicted_items & relevant_items)
     return true_positives / k if k > 0 else 0.0
 
-def f1_at_k(predicted_basket, ground_truth_basket, k,precision_at_k,recall_at_k):
+def f1_at_k(precision,recall):
     """
     Calculate F1@K for the given predicted basket and ground truth basket.
 
     F1@K is the harmonic mean of Precision@K and Recall@K.
 
     Args:
-    - predicted_basket (list): List of items predicted by the recommendation model.
-    - ground_truth_basket (list): List of items actually purchased/consumed by the user.
-    - k (int): The number of top items to consider in the predicted basket.
+    - precision: the precision that has being calculated before
+    - recall: the recall that has being calculated before
 
     Returns:
     - float: F1@K score.
     """
-    precision = precision_at_k(predicted_basket, ground_truth_basket, k)
-    recall = recall_at_k(predicted_basket, ground_truth_basket, k)
     if precision + recall == 0:
         return 0.0
-    return 2 * (precision * recall) / (precision + recall)
+    return ((2 * (precision * recall)) / (precision + recall))
 
 def recall_at_k(predicted_basket, ground_truth_basket, k):
     """
@@ -1689,7 +1745,7 @@ def evaluate_model_metrics(predicted_baskets, ground_truth_baskets, user_histori
 
         precision = precision_at_k(predicted, actual, k)
         recall = recall_at_k(predicted, actual, k)
-        f1 = f1_at_k(predicted, actual, k, precision_at_k, recall_at_k)
+        f1 = f1_at_k(precision, recall)
         ndcg = ndcg_at_k(predicted, actual, k)
         phr = phr_at_k(predicted, actual, k)
         repetition = repetition_ratio(predicted, history)
