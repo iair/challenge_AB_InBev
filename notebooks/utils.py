@@ -22,7 +22,7 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.cluster import KMeans
-from typing import Dict, Tuple, Any,List
+from typing import Dict, Tuple, Any,List,Callable
 
 def read_csv_with_lowercase_columns(file_path: str) -> pl.DataFrame:
     """
@@ -41,7 +41,6 @@ def read_csv_with_lowercase_columns(file_path: str) -> pl.DataFrame:
     df = df.rename({col: col.lower() for col in df.columns})
     
     return df
-
 def transform_to_date(df: pl.DataFrame, columns: list) -> pl.DataFrame:
     """
     Transforms specified columns of a DataFrame into date format (YYYY-mm-dd).
@@ -59,7 +58,6 @@ def transform_to_date(df: pl.DataFrame, columns: list) -> pl.DataFrame:
             pl.col(col).cast(pl.Utf8).str.strptime(pl.Date, format="%Y%m%d").alias(col)
         )
     return df.with_columns(transformations)
-
 def replace_sd_with_null(df: pl.DataFrame, columns: list) -> pl.DataFrame:
     """
     Reemplaza todos los valores "S/D" por valores nulos en las columnas especificadas de un DataFrame de polars.
@@ -77,7 +75,6 @@ def replace_sd_with_null(df: pl.DataFrame, columns: list) -> pl.DataFrame:
     ])
     
     return df
-
 def check_null_values(df: pl.DataFrame) -> pl.DataFrame:
     """
     Revisa valores nulos en un DataFrame de polars y retorna un DataFrame con la cantidad de nulos y el porcentaje de nulos por columna.
@@ -105,7 +102,6 @@ def check_null_values(df: pl.DataFrame) -> pl.DataFrame:
     ])
     
     return result
-
 def fill_missing_values(df: pl.DataFrame, target_column: str, numeric_features: list, categorical_features: list) -> tuple:
     """
     Rellena los valores nulos en la columna objetivo utilizando un modelo de árbol de decisión,
@@ -180,7 +176,6 @@ def fill_missing_values(df: pl.DataFrame, target_column: str, numeric_features: 
     df_updated = pl.from_pandas(df_pd)
 
     return df_updated, cf, accuracy, cross_val_scores.mean()
-
 def filter_rows_with_nulls(df: pl.DataFrame) -> pl.DataFrame:
     """
     Filtra las filas de un DataFrame de polars que contienen al menos un valor nulo.
@@ -202,7 +197,6 @@ def filter_rows_with_nulls(df: pl.DataFrame) -> pl.DataFrame:
     df_with_nulls = df.with_columns(null_mask).filter(pl.col("has_null"))
     
     return df_with_nulls
-
 def filter_rows_without_nulls(df: pl.DataFrame) -> pl.DataFrame:
     """
     Filtra las filas de un DataFrame de polars que no contienen ningún valor nulo.
@@ -224,7 +218,6 @@ def filter_rows_without_nulls(df: pl.DataFrame) -> pl.DataFrame:
     df_without_nulls = df.filter(not_null_mask["has_no_null"])
     
     return df_without_nulls
-
 def count_distinct_in_bins(df: pl.DataFrame, volume_column: str, column: str, bin_size: int = 500) -> pl.DataFrame:
     """
     Cuenta los valores distintos de una columna dentro de rangos de tamaño específico en otra columna.
@@ -250,7 +243,6 @@ def count_distinct_in_bins(df: pl.DataFrame, volume_column: str, column: str, bi
      
      # Retornar el resultado por 'volume_bin' ordenado de menor a mayor
     return result.sort("volume_bin")
-
 def calculate_statistics(df: pl.DataFrame, numeric_cols: list) -> pl.DataFrame:
     """
     Calcula el promedio, desviación estándar, y percentiles 0, 25, 50, 75, 100 para un grupo de variables numéricas.
@@ -299,7 +291,6 @@ def calculate_statistics(df: pl.DataFrame, numeric_cols: list) -> pl.DataFrame:
     final_df = pl.DataFrame(rows)
     
     return final_df
-
 def group_and_describe_with_percentiles(df: pl.DataFrame, group_by_col: str, numeric_cols: list, percentiles: list = [0.25, 0.5, 0.75]) -> pl.DataFrame:
     """
     Agrupa el DataFrame por una columna categórica y calcula las medidas de tendencia central,
@@ -330,7 +321,6 @@ def group_and_describe_with_percentiles(df: pl.DataFrame, group_by_col: str, num
     )
 
     return result
-
 def group_aggregate_sum(df: pl.DataFrame, group_by_cols: list, list_col: str, sum_cols: list) -> pl.DataFrame:
     """
     Groups a DataFrame by specified columns, aggregates one column's values into a list,
@@ -352,7 +342,6 @@ def group_aggregate_sum(df: pl.DataFrame, group_by_cols: list, list_col: str, su
     ])
     
     return grouped_df
-
 def count_unique_values(df: pl.DataFrame, columns: list) -> dict:
     """
     Cuenta los valores únicos de las columnas especificadas en un DataFrame.
@@ -366,7 +355,6 @@ def count_unique_values(df: pl.DataFrame, columns: list) -> dict:
     """
     unique_counts = {col: df[col].n_unique() for col in columns}
     return unique_counts
-
 def count_distinct_grouped_by(df: pl.DataFrame, y_column: str, x_columns: list, z_columns: list = None) -> pl.DataFrame:
     """
     Cuenta la cantidad de elementos distintos de una columna Y agrupado por los valores de una o más columnas X,
@@ -412,8 +400,7 @@ def count_distinct_grouped_by(df: pl.DataFrame, y_column: str, x_columns: list, 
     if z_columns:
         result = result.sort(by=z_columns, descending = True)
     
-    return result
-        
+    return result 
 def chi2_test(df: pl.DataFrame, col1: str, col2: str, confidence_level: float = 0.95):
     """
     Realiza la prueba de Chi-cuadrado para dos columnas categóricas y devuelve el p-valor y la conclusión.
@@ -446,7 +433,6 @@ def chi2_test(df: pl.DataFrame, col1: str, col2: str, confidence_level: float = 
         conclusion = "No se puede rechazar la hipótesis nula: No existe evidencia suficiente para afirmar una asociación significativa entre las variables."
     
     return p_value, conclusion
-
 def chi2_matrix(chi2_test_func, df: pl.DataFrame, categorical_columns: list, confidence_level: float ) -> np.ndarray:
     """
     Realiza la prueba de Chi-cuadrado entre todas las combinaciones de variables categóricas y devuelve una matriz de Verdadero/Falso.
@@ -474,7 +460,6 @@ def chi2_matrix(chi2_test_func, df: pl.DataFrame, categorical_columns: list, con
     results_df = pd.DataFrame(results_matrix, index=categorical_columns, columns=categorical_columns)
 
     return results_df
-
 def kruskal_wallis_test_multiple(df, numeric_cols, categorical_col, alpha=0.05):
     """
     Realiza el test de Kruskal-Wallis para evaluar la independencia entre varias variables categóricas y una variable numérica.
@@ -508,7 +493,6 @@ def kruskal_wallis_test_multiple(df, numeric_cols, categorical_col, alpha=0.05):
         }
     
     return results
-
 def plot_histograms(df, columns):
     """
     Plots histograms for the specified columns in the DataFrame.
@@ -532,7 +516,6 @@ def plot_histograms(df, columns):
 
     plt.tight_layout()
     plt.show()
-    
 def plot_boxplots(df: pl.DataFrame, columns: list):
     """
     Genera boxplots para cada columna en la lista de columnas ingresada, dispuestos en una sola fila.
@@ -559,7 +542,6 @@ def plot_boxplots(df: pl.DataFrame, columns: list):
 
     plt.tight_layout()
     plt.show()
-    
 def plot_weekly_sum(df, columns,group_by_period="weeks",xlabel_name="Weeks", ylabel_name="Sum of total values", title_name="Sum of Total Values over Time"):
     # Group by weeks and calculate sum for each column
     weekly_sum = df.group_by(group_by_period).agg(
@@ -578,7 +560,6 @@ def plot_weekly_sum(df, columns,group_by_period="weeks",xlabel_name="Weeks", yla
     plt.title(title_name)
     plt.legend()
     plt.show()
-
 def create_baskets(
     df: pl.DataFrame,
     group_cols: list[str],
@@ -609,7 +590,6 @@ def create_baskets(
     result = df.group_by(group_cols).agg(agg_exprs)
     
     return result.sort(sort_cols)
-
 def process_baskets_weekly(
     baskets: pl.DataFrame, 
     count_column: str, 
@@ -660,7 +640,6 @@ def process_baskets_weekly(
     )
 
     return weekly_result
-
 def process_baskets_biweekly(
     baskets: pl.DataFrame, 
     count_column: str, 
@@ -723,7 +702,6 @@ def process_baskets_biweekly(
     )
 
     return biweekly_result
-
 def process_baskets_monthly(
     baskets: pl.DataFrame, 
     count_column: str, 
@@ -762,7 +740,6 @@ def process_baskets_monthly(
     )
 
     return monthly_result
-
 def find_repetitive_purchasers(df, user_id_col, sku_id_col, date_col):
     return df.select([
         user_id_col, 
@@ -773,7 +750,6 @@ def find_repetitive_purchasers(df, user_id_col, sku_id_col, date_col):
     ).filter(
         pl.col("total_purchases") >= 12
     )
-
 def fit_ordered_logistic_regression(df: pl.DataFrame, target_column: str, numerical_features: list):
     """
     Ajusta un modelo de Regresión Logística Ordenada utilizando variables numéricas y una variable categórica ordinal como objetivo.
@@ -806,11 +782,11 @@ def fit_ordered_logistic_regression(df: pl.DataFrame, target_column: str, numeri
 
     # Mostrar los resultados
     return result
-
-# This are the functions used in modeling_mvp1_TIFUKNN+clustering.ipynb file
+# This are the functions used in modeling_poc1_TIFUKNN+clustering.ipynb file
 def build_item_user_matrix_by_cluster(df: pd.DataFrame, cluster_col: str = 'cluster', sku_col: str = 'sku_id', user_col: str = 'account_id', qty_col: str = 'items_phys_cases') -> Dict[Any, Dict[str, Dict[str, int]]]:
     """
-    Builds an item-user matrix for each cluster in the input DataFrame.
+    This function builds a dictionary of item-user matrices, where each key represents a cluster ID and the corresponding value is another dictionary. 
+    The inner dictionary maps SKU IDs to user IDs, with the value being the total quantity of items purchased by the user for that SKU in the cluster.
     
     Parameters:
     df (pd.DataFrame): The input DataFrame containing cluster, SKU, user, and quantity information.
@@ -837,13 +813,24 @@ def build_item_user_matrix_by_cluster(df: pd.DataFrame, cluster_col: str = 'clus
         cluster_item_user_matrices[cluster_id] = item_user_matrix
 
     return cluster_item_user_matrices
-
 def compute_similarity_by_cluster(cluster_item_user_matrices: Dict[Any, Dict[str, Dict[str, int]]], 
                                   df: pd.DataFrame, 
                                   cluster_col: str = 'cluster', 
                                   user_col: str = 'account_id') -> Dict[Any, Tuple[np.ndarray, list]]:
     """
-    Computes item similarity matrices for each cluster based on the item-user matrices.
+    This Python function `compute_similarity_by_cluster` calculates the cosine similarity between items in each cluster based on the item-user matrices. 
+    The function takes in a dictionary of item-user matrices, a DataFrame containing cluster, SKU, user, and quantity information, and the column names for the cluster and user IDs. 
+    It returns a dictionary where each key is a cluster ID, and the corresponding value is a tuple containing the cosine similarity matrix between items in the cluster as a numpy array, 
+    and the list of actual SKUs in the cluster. 
+    
+    - The function iterates over each cluster ID and its corresponding item-user matrix. 
+    - It gets the list of users for the current cluster and the list of actual SKUs in the cluster. 
+    - It then creates the item-user matrix as a numpy array, and computes the cosine similarity between items using the `cosine_similarity` function. 
+    - The resulting cosine similarity matrix is stored in the `cluster_item_similarity` dictionary with the current cluster ID as the key.
+    - The function returns the `cluster_item_similarity` dictionary.
+    - The cosine similarity matrix is computed using the `cosine_similarity` function, which is not defined in the provided code snippet. 
+    - The function returns a dictionary where each key is a cluster ID, and the corresponding value is a tuple containing the cosine similarity matrix 
+      between items in the cluster as a numpy array, and the list of actual SKUs in the cluster.
     
     Parameters:
     cluster_item_user_matrices (Dict[Any, Dict[str, Dict[str, int]]]): A dictionary where each key is a cluster ID, and the corresponding value is another dictionary.
@@ -875,8 +862,6 @@ def compute_similarity_by_cluster(cluster_item_user_matrices: Dict[Any, Dict[str
         cluster_item_similarity[cluster_id] = (item_similarity, items)
 
     return cluster_item_similarity
-
-
 def predict_next_baskets_for_all(test_data: pd.DataFrame, 
                                  cluster_item_similarity: Dict[Any, Tuple[np.ndarray, list]], 
                                  train_data: pd.DataFrame, 
@@ -885,8 +870,17 @@ def predict_next_baskets_for_all(test_data: pd.DataFrame,
                                  sku_col: str = 'sku_id', 
                                  k: int = 5):
     """
-    Predict the next basket for all users in the test dataset based on item similarity within clusters.
-    If the primary prediction method does not fill the required number of recommendations, fallback strategies are applied.
+    This code snippet is a function named `predict_next_baskets_for_all` that predicts the next basket for all users in a test dataset based on item similarity within clusters. 
+    The function takes several parameters, including the test dataset, cluster item similarity matrix, training dataset, and column names for user IDs, cluster assignments, and SKUs.
+    
+    - The function first initializes several dictionaries to store the predicted baskets, ground truth baskets, user histories, and counts for the main strategy and fallback strategies.
+    - It then loops through each user in the test dataset, retrieves their cluster, similarity matrix, and item list, and counts the frequency of each item in their purchase history.
+    - The function generates recommendations based on item similarity within the cluster and sorts them by score. 
+      -If the number of recommendations is less than the desired number `k`, it applies fallback strategies,
+        - first try including recommending the most common items purchased by the user that are also common in the cluster 
+       -  then,If the number of recommendations is less than the desired number `k`, it applies the most common items purchased only by the user.
+    Finally, the function stores the top-k items in the predicted baskets, the ground truth basket for each user, and returns the predicted baskets, 
+    ground truth baskets, user histories, and counts for the main strategy and fallback strategies.
 
     Parameters:
     - test_data (pd.DataFrame): The test dataset containing user information and purchase history.
@@ -973,7 +967,6 @@ def predict_next_baskets_for_all(test_data: pd.DataFrame,
         ground_truth_baskets[account_id] = test_data[test_data[user_col] == account_id][sku_col].tolist()
 
     return predicted_baskets, ground_truth_baskets, user_histories, main_strategy_count, fallback1_count, fallback2_count
-
 def predict_next_basket_for_user(account_id: str, 
                                  test_data: pd.DataFrame, 
                                  cluster_item_similarity: Dict[Any, Tuple[np.ndarray, list]], 
@@ -983,8 +976,10 @@ def predict_next_basket_for_user(account_id: str,
                                  sku_col: str = 'sku_id', 
                                  k: int = 5):
     """
-    Predict the next basket for a specific user based on item similarity within their cluster.
-    If the primary prediction method does not fill the required number of recommendations, fallback strategies are applied.
+    
+    This code snippet is a function named `predict_next_basket_for_user` that predicts the next basket for a specific user based on item similarity within their cluster. 
+    It takes into account the user's purchase history and applies fallback strategies if the primary prediction method does not fill the required number of recommendations. 
+    The function returns a list of the top-k recommended SKUs for the user.
 
     Parameters:
     - account_id (str): The ID of the user to generate the prediction for.
@@ -1048,12 +1043,11 @@ def predict_next_basket_for_user(account_id: str,
             final_recommendations.extend(user_specific_items[:(k - len(final_recommendations))])
 
     return final_recommendations[:k]
-
-# This are the functions used in nmodeling_mvp2_TIFUKNN.ipynb file
-
+# This are the functions used in nmodeling_poc2_TIFUKNN.ipynb file
 def split_train_test_iso(transactions):
     """
-    Splits the given transactions DataFrame into training and testing sets based on biweekly periods.
+    This function splits a transactions DataFrame into training and testing sets based on biweekly periods. 
+    It assigns the most recent biweekly period to the test set and the rest to the training set.
 
     Parameters:
         transactions (pandas.DataFrame): The DataFrame containing the transactions data.
@@ -1067,10 +1061,11 @@ def split_train_test_iso(transactions):
     test_data = transactions[transactions['biweekly_period'] == max_period]
 
     return train_data, test_data
-
 def exponential_decay(max_period, current_period, group_decay_rate, within_group_decay_rate, is_same_group, alpha):
     """
-    Applies an exponential time decay based on the difference in biweekly periods.
+    This function calculates a decay weight for a transaction based on the time difference between the maximum period and the current period. 
+    The decay rate depends on whether the transaction is within the same group or across different groups. 
+    The general decay factor `alpha` is also applied.
 
     Args:
     - max_period (int): The maximum period in the dataset.
@@ -1090,11 +1085,12 @@ def exponential_decay(max_period, current_period, group_decay_rate, within_group
         return alpha * (group_decay_rate ** time_diff)
     
     return alpha ** time_diff
-
 def compute_item_similarity_iso(train_data, decay_function, user_col, item_col, period_col, quantity_col, 
                                 alpha, group_decay_rate=1, within_group_decay_rate=1, group_col=None):
     """
-    Computes the item similarity matrix using a specified time decay function.
+   This function calculates the similarity between items (SKUs) based on user purchase histories. 
+   It takes into account the time decay of interactions, where more recent interactions have a greater impact on the similarity calculation. 
+   The function returns a similarity matrix and a list of items (SKUs).
 
     Args:
     - train_data (DataFrame): The training data containing user purchase histories.
@@ -1135,11 +1131,20 @@ def compute_item_similarity_iso(train_data, decay_function, user_col, item_col, 
     item_similarity = cosine_similarity(item_vectors)
 
     return item_similarity, items
-
 def select_k(item_similarity, random_state=11):
     """
-    Selects the optimal number of clusters (k) for the item similarity matrix using a method that considers
-    the differences between consecutive changes in SSE.
+    This Python function, `select_k`, is used to determine the optimal number of clusters (k) for an item similarity matrix. 
+
+    The function works as follows:
+    
+    0. The function is designed to work with an item similarity matrix.
+    1. It iterates over a range of k values from 2 to 10.
+    2. For each k, it performs KMeans clustering on the item similarity matrix.
+    3. It calculates the Sum of Squared Errors (SSE) for each k.
+    4. It calculates the differences between consecutive SSE values.
+    5. It calculates the differences between consecutive changes in SSE.
+    6. The optimal k is determined by finding the k corresponding to the minimum change between consecutive changes.
+    7. The function returns the optimal k and SSE values.
 
     Parameters:
     item_similarity (numpy.ndarray): The item similarity matrix.
@@ -1164,10 +1169,11 @@ def select_k(item_similarity, random_state=11):
     optimal_k = np.argmin(sse_diff_changes) + 2  # +2 because k starts from 2 and we take the change of the change
     
     return optimal_k, sse,sse_diff_changes
-
 def find_most_similar_items(item_similarity, items, k, random_state=11):
     """
-    Finds the most similar items based on their similarity matrix and clusters them into k groups.
+    This code snippet uses K-Means clustering to group similar items together based on their similarity matrix. 
+    It takes in an item similarity matrix, a list of items, and the number of clusters (k) as input, 
+    and returns a dictionary mapping each item to its corresponding cluster.
 
     Parameters:
     item_similarity (numpy.ndarray): The item similarity matrix.
@@ -1183,10 +1189,16 @@ def find_most_similar_items(item_similarity, items, k, random_state=11):
 
     item_to_cluster = {item: cluster for item, cluster in zip(items, clusters)}
     return item_to_cluster
-
 def generate_recommendations(user_history, item_similarity, items, item_to_cluster, k,threshold):
     """
-    Generates recommendations based on one user history and item similarity.
+    This function generates personalized item recommendations based on a user's interaction history and item similarity. It works as follows:
+
+    1. For each item in the user's history, it finds the cluster it belongs to.
+    2. It then identifies similar items within that cluster that have a similarity score above a given threshold.
+    3. The function assigns a score to each similar item based on its frequency of appearance in the user's history.
+    4. Finally, it returns the top k items with the highest scores as recommendations.
+
+    In essence, this function uses collaborative filtering and item similarity to provide personalized recommendations.
 
     Parameters:
     user_history (list): A list of items the user has previously interacted with.
@@ -1210,7 +1222,12 @@ def generate_recommendations(user_history, item_similarity, items, item_to_clust
     return [item for item, score in item_scores.most_common(k)]
 def generate_basket_data(train_data, test_data, item_similarity, items, item_to_cluster, user_col='account_id', item_col='sku_id', k=5,threshold=0.5):
     """
-    Generates predicted baskets, ground truth baskets, and user histories for all users in the test set.
+    This function generates predicted baskets, ground truth baskets, and user histories for all users in the test set. 
+    It takes in training data, test data, item similarity matrix, list of items, item-to-cluster mapping, 
+    and parameters for the recommendation algorithm (k and threshold). 
+    The function iterates over each user in the test set, retrieves their purchase history from the training data, 
+    their ground truth basket from the test data, and generates a predicted basket using the `generate_recommendations` function. 
+    The function returns three dictionaries: one for predicted baskets, one for ground truth baskets, and one for user histories.
 
     Args:
     - train_data (DataFrame): The training data containing user purchase histories.
@@ -1242,13 +1259,167 @@ def generate_basket_data(train_data, test_data, item_similarity, items, item_to_
         user_histories[account_id] = user_history
 
     return predicted_baskets, ground_truth_baskets, user_histories
+# Mixed strategy functions
+def predict_nb_for_all_mixed_strategy(
+    test_data: pd.DataFrame,
+    cluster_item_similarity: Dict[Any, Tuple[np.ndarray, list]],
+    train_data: pd.DataFrame,
+    tifuknn_strategy: Callable[[Dict[str, int], np.ndarray, list, int], list],
+    strategy_used: Callable[[list, list, list], str],
+    user_col: str = 'account_id',
+    cluster_col: str = 'cluster',
+    sku_col: str = 'sku_id',
+    k: int = 5,
+    strategy_1_count: int = 2,
+    strategy_2_count: int = 2
+) -> Tuple[Dict[str, list], Dict[str, list], Dict[str, list], Dict[str, int]]:
+    """
+    This code snippet is a function named `predict_nb_for_all_mixed_strategy` that predicts the next basket for all users in a test dataset based on item similarity within clusters. 
+    The basket is assembled using three strategies in a controlled order:
+
+    1. Strategy 1: Most frequent items that are common between the user and the cluster.
+    2. Strategy 2: Most frequent items purchased only by the user (but not included in Strategy 1).
+    3. Strategy 3: Fill the remaining slots using the provided TIFUKNN strategy.
+
+    The function takes several parameters, including the test dataset, cluster item similarity matrix, training dataset, 
+    TIFUKNN strategy, and strategy used. It returns four dictionaries: predicted baskets, ground truth baskets, user histories, and strategy counts.
+
+    Parameters:
+    - test_data (pd.DataFrame): The test dataset containing user information and purchase history.
+    - cluster_item_similarity (Dict[Any, Tuple[np.ndarray, list]]): A dictionary mapping each cluster to its item similarity matrix and item list.
+    - train_data (pd.DataFrame): The training dataset containing user purchase history.
+    - tifuknn_strategy (Callable): A function to compute recommendations using the TIFUKNN algorithm.
+    - strategy_used (Callable): A function to determine which strategy was used for each user.
+    - user_col (str): The column name for user IDs in the dataset (default is 'account_id').
+    - cluster_col (str): The column name for cluster assignments in the dataset (default is 'cluster').
+    - sku_col (str): The column name for SKUs in the dataset (default is 'sku_id').
+    - k (int): The number of top items to recommend (default is 14).
+    - strategy_1_count (int): The number of items to include from Strategy 1.
+    - strategy_2_count (int): The number of items to include from Strategy 2.
+
+    Returns:
+    - predicted_baskets (dict): A dictionary mapping each user to their predicted basket.
+    - ground_truth_baskets (dict): A dictionary mapping each user to their ground truth basket.
+    - user_histories (dict): A dictionary mapping each user to their purchase history.
+    - strategy_counts (dict): A dictionary containing counts of how many users were satisfied by each strategy.
+    """
+    
+    # Initialize storage for results
+    predicted_baskets = {}
+    ground_truth_baskets = {}
+    user_histories = {}
+    
+    strategy_counts = {'main_strategy_count': 0, 'fallback1_count': 0, 'fallback2_count': 0}
+    #count = 0
+
+    # Loop through each user in the test dataset
+    for account_id in test_data[user_col].unique():
+        # Get the cluster of the user
+        user_cluster = test_data[test_data[user_col] == account_id][cluster_col].iloc[0]
+        
+        # Get the similarity matrix and item list for the user's cluster
+        item_similarity, items = cluster_item_similarity[user_cluster]
+        
+        # Retrieve the user's purchase history from the training data
+        user_history = train_data[train_data[user_col] == account_id][sku_col].tolist()
+        user_histories[account_id] = user_history
+        
+        if len(user_history) == 0:
+            continue
+        
+        # Count the frequency of each item in the user's history
+        item_freq = defaultdict(int)
+        for item in user_history:
+            if item in items:
+                item_freq[item] += 1
+
+        # Strategy 1: Most frequent items that are common between user and cluster
+        cluster_common_items = Counter([item for user in train_data[train_data[cluster_col] == user_cluster][user_col].unique() 
+                                        for item in train_data[train_data[user_col] == user][sku_col].tolist()])
+        user_common_items = Counter(user_history)
+        strategy_1_items = [item for item in user_common_items if item in cluster_common_items]
+        strategy_1_items = sorted(strategy_1_items, key=lambda x: cluster_common_items[x], reverse=True)[:strategy_1_count]
+        
+        # Strategy 2: Most frequent items purchased only by the user (but not included in Strategy 1)
+        strategy_2_items = [item for item in user_common_items if item not in strategy_1_items]
+        strategy_2_items = sorted(strategy_2_items, key=lambda x: user_common_items[x], reverse=True)[:strategy_2_count]
+        
+        # Strategy 3: Fill the remaining slots using the provided TIFUKNN strategy
+        strategy_3_items = tifuknn_strategy(item_freq, item_similarity, items, k - strategy_1_count - strategy_2_count)
+        
+        # Assemble the final recommendation list
+        final_recommendations = strategy_1_items + strategy_2_items + strategy_3_items[:k - len(strategy_1_items) - len(strategy_2_items)]
+        
+        # Determine which strategy was used
+        strategy_label = strategy_used(strategy_1_items, strategy_2_items, strategy_3_items)
+        strategy_counts[strategy_label] += 1
+
+        # Store the top-k items in predicted_baskets
+        predicted_baskets[account_id] = final_recommendations[:k]
+        
+        # Store the ground truth basket for the user
+        ground_truth_baskets[account_id] = test_data[test_data[user_col] == account_id][sku_col].tolist()
+        
+        #count+=1
+        #print(count)
+
+    return predicted_baskets, ground_truth_baskets, user_histories, strategy_counts
+def tifuknn_strategy(user_history, item_similarity, items, remaining_k):
+    """
+    This Python function implements the TIFUKNN strategy to generate item recommendations based on the user's history and item similarity. 
+    The function takes in the user's history, the item similarity matrix, and the number of top items to recommend and do this process:
+    
+    - The function first counts the frequency of each item in the user's history. 
+    - It then generates recommendations by iterating through the user's history and item similarity matrix. 
+    - For each item, it finds the top recommended items based on the user's history and item similarity. 
+    - The function then returns a list of the top recommended items based on the user's history and item similarity
+
+    Parameters:
+    user_history (list): A list of items the user has interacted with.
+    item_similarity (numpy.ndarray): The item similarity matrix.
+    items (list): The list of all items.
+    remaining_k (int): The number of top items to recommend.
+
+    Returns:
+    list: A list of the top recommended items based on the user's history and item similarity.
+    """
+    item_freq = Counter(user_history)
+    recommendations = []
+    for item, freq in item_freq.items():
+        if item in items:
+            similar_items_idx = np.argsort(item_similarity[items.index(item)])[::-1][:remaining_k]
+            recommendations.extend([(items[i], item_similarity[items.index(item), i] * freq) for i in similar_items_idx])
+    return [r[0] for r in sorted(recommendations, key=lambda x: x[1], reverse=True)]
+
+def strategy_used(strategy_1, strategy_2, strategy_3):
+    """
+    This code defines a function called `strategy_used` that takes in three lists: `strategy_1`, `strategy_2`, and `strategy_3`. 
+    The function determines which strategy was used for item recommendation based on the lengths of the three lists. 
+    
+    - If `strategy_3` has a length greater than 0, the function returns the string `'main_strategy_count'`. 
+    - If `strategy_2` has a length greater than 0, the function returns the string `'fallback1_count'`. 
+    - Otherwise, the function returns the string `'fallback2_count'`.
+
+    Parameters:
+    strategy_1 (list): The list of items recommended by the primary strategy.
+    strategy_2 (list): The list of items recommended by the secondary strategy.
+    strategy_3 (list): The list of items recommended by the tertiary strategy.
+
+    Returns:
+    str: The label of the strategy used, either 'main_strategy_count', 'fallback1_count', or 'fallback2_count'.
+    """
+    if len(strategy_3) > 0:
+        return 'main_strategy_count'
+    elif len(strategy_2) > 0:
+        return 'fallback1_count'
+    else:
+        return 'fallback2_count'
 
 # This are the metrics used to evaluate our experiments
 # Conventional Metrics
 def precision_at_k(predicted_basket, ground_truth_basket, k):
     """
     Calculate Precision@K for the given predicted basket and ground truth basket.
-
     Precision@K measures the fraction of relevant items among the top K recommendations.
 
     Args:
