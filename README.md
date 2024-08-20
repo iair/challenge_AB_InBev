@@ -95,7 +95,7 @@ El objetivo de usar este algoritmo es probar qué ocurre cuando favorecemos la r
 
 ![Alt text](documents/images/results_common_metrics.png)
 
-![Alt text](documents/images/results_common_metrics.png)
+![Alt text](documents/images/results_especial_metrics.png)
 
 
 Las métricas seleccionadas nos permiten obtener una visión completa sobre la performance general del modelo en cuanto a precisión y alcance, pero también nos permite entender cómo influye el que un algoritmo sea más o menos propenso a recomendar artículos repetidos por sobre ofrecer artículos de exploración. 
@@ -118,7 +118,6 @@ Como podemos observar
     **Respuesta:** 
     
     - se genera 1 recomendación cada dos semanas que contiene 5 SKU por recomendación. Los algoritmos propuestos no especifican la cantidad sugeridad de cada SKU, eso ha quedado para futuros avances.
-
     
     
     * ¿Cuál va a ser el criterio para definir esta cantidad?
