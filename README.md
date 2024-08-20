@@ -36,7 +36,7 @@ Respuesta:
 
 ## Descripción del proceso realizado
 
-A continuación describimos el proceso de lo realizado, los resultados de cada proceso se puden encontrar en los notebooks correspondientes
+A continuación describimos el proceso de lo realizado, especificando solo aquellos procesos que corresponden a lo que se utilizará finalmente en el entrenamiento e inferencia en producción. El resto de los resultados se puden encontrar documentados en los notebooks correspondientes.
 
 ### Preprocessing (preprocesssing_EDA.ipynb)
 
@@ -53,7 +53,7 @@ En los dataset de atributos y transacciones se ejecutan los siguientes análisis
 
 El objetivo de este análisis es entender la magnitud del problema, las características del comportamiento transaccional y de los atributos asignados a los clientes. Uno de los aspectos más importantes en este análisis es entender la factibilidad de ejecutar algoritmos de clusterización para segmentar a los usuarios, así como también comprender si los primeros algoritmos que debemos usar en estas POC con frecuentistas, de filtro colaborativo , secuenciales , factorización de matrices, aprendizaje profundo y/o híbrido
 
-**Sobre las clientes**
+**Sobre los clientes**
 
 * **Análisis a la caracterización de los clientes**
     * ¿A cúantos clientes se les debe hacer recomendación? ¿Cuánto compran los clientes en cada compra? ¿Con qué frecuencia los clientes realizan compras?
@@ -87,28 +87,36 @@ En específico para este challenge hemos usado tres adaptaciones propias al algo
 
 El código implementa un sistema de recomendación basado en la similitud de productos dentro de clústeres de usuarios. La idea principal es predecir qué productos es más probable que un usuario compre en su próxima compra, utilizando información sobre las compras anteriores de ese usuario y la similitud entre los productos comprados por otros usuarios en el mismo clúster.
 
-***Data Wrangling***
+### Data Wrangling
+
 En esta POC se utilizan un preprocesamiento del dataset de atributos que calcula la distancia de Gower entre los clientes y luego utiliza el algoritmo de cluster jerárquico *linkage* basado en esta distancia para generar 6 clusters. El número óptimo se hizo mediante análisis visual usando dendogramas.
 
 Ventajas de Este Enfoque:
-    * Datos Mixtos: Gower's Distance maneja diferentes tipos de datos sin necesidad de preprocesamientos adicionales complicados.
-    * Flexibilidad: Puedes explorar diferentes estructuras de clusters usando el dendrograma y ajustar el número de clusters según sea necesario.
+
+* Datos Mixtos: Gower's Distance maneja diferentes tipos de datos sin necesidad de preprocesamientos adicionales complicados.
+   
+* Flexibilidad: Puedes explorar diferentes estructuras de clusters usando el dendrograma y ajustar el número de clusters según sea necesario.
 
 
 División de entrenamiento y prueba: dividimos los datos transaccionales en conjuntos de datos de entrenamiento y prueba utilizando períodos quincenales. El último período se utiliza para pruebas y el resto para entrenamiento.
-***Modelo*** 
 
-Implementación personalizada del algoritmo TIFUKNN
+### Modelo
 
-1. Implementación primaria: implementamos el algoritmo TIFUKNN (filtrado temporal basado en elementos mediante K vecinos más cercanos) mejorado por clústeres. El modelo predice la siguiente canasta de elementos para cada usuario en función de la similitud de elementos dentro de su clúster.
+Algoritmo propio baso en filtro colaborativo basado en ítems (Item-based Collaborative Filtering)
 
-2. Cálculo de similitud de elementos: la similitud de elementos se calcula utilizando los datos de entrenamiento.
+1. Construcción de la Matriz Usuario-Producto por Clúster : Crea una matriz que asocia cada usuario con los productos que ha comprado y la cantidad comprada, dentro de cada clúster. Esta matriz se estructura en un diccionario donde la clave es el ID del clúster, y el valor es otro diccionario que relaciona los SKUs con los usuarios y las cantidades compradas.
 
-3. Predicción para todos los usuarios: la función predict_next_baskets_for_all se creó para generar predicciones para todos los usuarios en el conjunto de datos de prueba. Si la estrategia principal no completa por completo las recomendaciones requeridas (k), se aplican estrategias de respaldo:
+2. Cálculo de similitud entre productos por cluster: Calcula la similitud coseno entre los productos en cada clúster, basándose en las matrices creadas en el paso anterior. El resultado es un diccionario donde cada clave es un ID de clúster y su valor es una tupla que contiene una matriz de similitud y la lista de SKUs en ese clúster.
 
-    * Respaldo 1: los elementos más comunes comprados por el usuario que también son de los más comprados en el clúster.
+3. Predicción de las Próximas Compras para Todos los Usuarios en el Conjunto de Prueba: lPredice los próximos productos que un usuario comprará en base a la similitud entre productos en su clúster. Si no se logran obtener suficientes recomendaciones usando la estrategia principal, se aplican estrategias de respaldo para completar las recomendaciones. El resultado es un conjunto de cestas predichas (predicted_baskets) y un conjunto de cestas reales (ground_truth_baskets) para cada usuario.
 
-    * Respaldo 2: los elementos más comunes comprados solo por el usuario.
+Las estrategias de predicción son:
+
+ - Estrategia Principal: Utiliza la similitud entre los productos dentro del clúster para predecir las próximas compras.
+ 
+ - Fallback 1: Si la estrategia principal no logra generar suficientes recomendaciones, se recurre a los productos más comunes comprados por el usuario y que también son comunes en el clúster.
+
+ - Fallback 2: Si aún no se logran obtener suficientes recomendaciones, se recurre a los productos más comunes comprados solo por el usuario.
 
 4. Evaluación del modelo: Implementamos un conjunto de funciones para evaluar el desempeño del modelo utilizando métricas como Precision@K, Recall@K, F1@K, NDCG@K, PHR@K, Repetition Ratio y Exploration Ratio.
 
