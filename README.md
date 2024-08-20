@@ -49,9 +49,9 @@ elegidos.
 
 - Se crearon dos dataset a partir de las transacciones:
 
-1. *baskets* : Que es una agrupación por fecha(día)-usuario-orden que contiene 1 o mas sku y que contiene 1 o más cantidades pedidas de cada sku. Todos los artículos comprados en un solo día por un mismo cliente en una orden se considera una canasta. Estos datos se utilizaron posteriormente para hacer parte del EDA.
+1. *baskets* : Que es una agrupación por fecha(día)-usuario-orden que contiene 1 o mas sku y que contiene 1 o más cantidades pedidas de cada sku. Todos los artículos comprados en un solo día por un mismo cliente en una orden se considera una canasta. Estos datos se utilizaron posteriormente para hacer el análisis transaccional general en el EDA.
 
-2. *temporal_transactions* : 
+2. *temporal_transactions* : Calcula métricas sobre todas las transacciones realizadas para cada cliente y se usa para el análisis transaccional temporal en el EDA.
 
 - Se creó una segmentación utilizando algoritmo *linkage* de clustering jerárquico basado en la distancia de Gower , con los cuales se generaron 6 segmentos que se agregaron a los datos transaccionales creando un nuevo dataset llamado transactions_cluster, el cual es el que se utiliza para aplicar los modelos que aplican filtros colaborativos basados en items. Este proceso implicó la eliminación de 389 clientes, equivalentes al 8.8% del total (4400)
 
@@ -115,12 +115,23 @@ Como podemos observar
     
     * ¿Cuántas recomendaciones de productos va a hacer para cada cliente? 
 
-    **Respuesta:** se genera 1 recomendación cada dos semanas que contiene 5 SKU por recomendación. Los algoritmos propuestos no especifican la cantidad sugeridad de cada SKU, eso ha quedado para futuros avances.
+    **Respuesta:** 
+    
+    - se genera 1 recomendación cada dos semanas que contiene 5 SKU por recomendación. Los algoritmos propuestos no especifican la cantidad sugeridad de cada SKU, eso ha quedado para futuros avances.
+
+    
     
     * ¿Cuál va a ser el criterio para definir esta cantidad?
 
-    **Respuesta:** 
+    **Respuesta:**  
+    
+    - Se usa un periodo de dos semanas ya analizado en el total de transacciones el 50% los clientes compró cada 12 días o menos y analizado de forma bisemanal
 
+    ![Alt text](documents/images/frequency_purchase_boxplot.png)
+
+    - Se entregan 5 SKU recomendados porque es un buen balance entre un número que se pueda desplegar fácilmente en una aplicación y que si se ve en móvil no requiera mucho *scroll down* y el patrón de consumo que ya tienen los usuarios. Del EDA sabemos que analizado de forma bisemanal, el 75% lleva 6 o menos SKU en promedio y analizado en el total de transacciones realizadas, el 50% compro 6 SKU o menos por compra.
+
+    ![Alt text](documents/images/avg_sku_by_purchase.png)
 
 ## Descripción del proceso realizado en el preprocesamiennto y EDA (preprocesssing_EDA.ipynb)
 
@@ -178,9 +189,7 @@ a excepción del PHR de K, que si se hae como una proporción de los usuarios de
 2. El F1 de K no fue utilizado de esa forma en el reporte final presentado en el Readme, sino que se ingresaron los promedios de Precisión y Recall de K 
 como input de forma directa para calcularlo usando la siguiente fórmula:
 
-F1 de K = 2 * (Precision de K promedio * Recall de K promedio)
-              ------------------------------------------------
-              (Precision de K promedio + Recall de K promedio)
+F1 de K = 2 * (Precision de K promedio * Recall de K promedio)/(Precision de K promedio + Recall de K promedio)
 
 3. En los notebooks con los experimentos, el que se muestra es el F1 de K promedio.
 
@@ -277,7 +286,9 @@ En resumen, TIFUKNN es un algoritmo de recomendación basado en ítems que incor
 
 ## Futuros avances
 
-* Falta hacer análisis de cohort
+* Hacer análisis de cohort
+
+* Incorporar las variables del análisis transaccional temporal como features asociados a los clientes que permitan segmentarlos mejor
 
 * Se podrían examinar en mayor detalle los clientes que quedaron fuera de la muestra de transacciones porque no están en el dataset de atributos. El objetivo sería entender si es que hay algún sesgo asociado (por ejemplo, clientes de baja frecuencia o monto de compras y/o cantidad de SKU o productos por compra) 
 
